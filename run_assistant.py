@@ -1,0 +1,648 @@
+import streamlit as st
+import os
+import json
+import chromadb
+import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
+from datetime import datetime
+from dateutil import parser
+from sentence_transformers import SentenceTransformer
+from groq import Groq
+from dotenv import load_dotenv, set_key
+
+# --- Import your custom modules ---
+try:
+    from scrapper import EnhancedErpScraper
+    from utils.notifications import format_student_report, send_twilio_whatsapp_report
+    from styles.ui_components import load_custom_css, create_welcome_header, create_login_form, create_sidebar_content, create_next_class_card, create_metric_cards
+except ImportError as e:
+    st.error(f"Fatal Error: Required modules not found. {str(e)}")
+    st.stop()
+
+# --- 1. SETUP AND CONFIGURATION ---
+load_dotenv()
+
+# Configuration constants
+DB_PATH = "./university_db"
+DATA_FOLDER = "data"
+COLLECTION_NAME = "university_handbook"
+EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
+GROQ_MODEL_NAME = "llama3-8b-8192"
+
+# --- 2. HELPER FUNCTIONS ---
+def update_env_file(key_to_update, new_value):
+    """Safely updates a key in the .env file."""
+    set_key('.env', key_to_update, new_value)
+    print(f"Updated {key_to_update} in .env file.")
+
+def run_scraper(roll_no, password):
+    """Runs the ERP scraper and returns the data dictionary."""
+    try:
+        with EnhancedErpScraper(roll_no, password) as scraper:
+            return scraper.scrape_all_data()
+    except Exception as e:
+        return {"error": str(e)}
+
+def check_and_fetch_data(roll_no, password):
+    """Checks for cached data; if not found, runs the scraper and caches the new data."""
+    if not os.path.exists(DATA_FOLDER):
+        os.makedirs(DATA_FOLDER)
+    
+    file_path = os.path.join(DATA_FOLDER, f"{roll_no}.json")
+
+    if os.path.exists(file_path):
+        st.toast("✅ Found cached data. Loading from file.", icon="📄")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    else:
+        st.toast("🔄 No cached data. Fetching live data from ERP...", icon="📡")
+        with st.spinner(f"🔗 Connecting to ERP for {roll_no}..."):
+            scraped_data = run_scraper(roll_no, password)
+        
+        if scraped_data and "error" not in scraped_data:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(scraped_data, f, indent=4)
+            st.balloons()
+            st.success("🎉 Live data fetched and saved for future use!")
+            return scraped_data
+        else:
+            error_msg = scraped_data.get('error', 'an unknown error occurred') if scraped_data else 'an unknown error occurred'
+            st.error(f"❌ Failed to fetch data. Error: {error_msg}")
+            return None
+
+@st.cache_resource
+def initialize_components():
+    """Initializes and caches the ChromaDB client and embedding model."""
+    with st.spinner("🔄 Initializing AI components..."):
+        client = chromadb.PersistentClient(path=DB_PATH)
+        embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
+    return client, embedding_model
+
+def get_next_class(timetable):
+    """Finds the user's next scheduled class and returns its data or a status message."""
+    now = datetime.now()
+    current_day_str = now.strftime('%A')
+    # current_day_str = 'Monday' # Uncomment for testing
+    current_time = now.time()
+    
+    if current_day_str not in timetable or not timetable[current_day_str]:
+        return f"No classes scheduled for today ({current_day_str})."
+
+    today_schedule = timetable[current_day_str]
+    for session in sorted(today_schedule, key=lambda x: parser.parse(x['time'].split(' - ')[0])):
+        start_time_str = session['time'].split(' - ')[0]
+        # Handle different time formats like '9:00AM' or '09:00 AM'
+        start_time = parser.parse(start_time_str).time()
+        
+        if start_time > current_time:
+            # Return the entire session dictionary
+            return session
+            
+    return "✅ You have no more classes scheduled for today."
+# --- 3. VISUALIZATION FUNCTIONS ---
+def create_attendance_chart(attendance_data):
+    """Creates an enhanced Plotly bar chart for attendance."""
+    if not attendance_data:
+        return go.Figure()
+    
+    df = pd.DataFrame(attendance_data)
+    df['percentage'] = df['percentage'].astype(float)
+    
+    # Create color scale based on attendance percentage
+    colors = ['#f56565' if x < 75 else '#48bb78' if x >= 85 else '#ed8936' for x in df['percentage']]
+    
+    fig = go.Figure(data=[
+        go.Bar(
+            y=df['course_name'],
+            x=df['percentage'],
+            orientation='h',
+            marker=dict(
+                color=colors,
+                line=dict(color='rgba(0,0,0,0.1)', width=1)
+            ),
+            text=[f'{x:.1f}%' for x in df['percentage']],
+            textposition='outside',
+            hovertemplate='<b>%{y}</b><br>Attendance: %{x:.1f}%<extra></extra>'
+        )
+    ])
+    
+    fig.update_layout(
+        title={
+            'text': '📊 Course Attendance Overview',
+            'font': {'size': 20, 'color': '#4a5568'},
+            'x': 0.5,
+            'xanchor': 'center'
+        },
+        xaxis_title='Attendance Percentage',
+        yaxis_title='Courses',
+        yaxis={'categoryorder': 'total ascending'},
+        template='plotly_white',
+        height=max(400, len(df) * 40),
+        margin=dict(l=20, r=20, t=80, b=20),
+        showlegend=False,
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    return fig
+
+def create_gpa_chart(semester_results):
+    """Creates an enhanced Plotly line chart for GPA/CGPA trends."""
+    if not semester_results:
+        return go.Figure()
+    
+    df = pd.DataFrame(semester_results)
+    df['gpa'] = df['gpa'].astype(float)
+    df['cgpa'] = df['cgpa'].astype(float)
+    
+    fig = go.Figure()
+    
+    # Add GPA line
+    fig.add_trace(go.Scatter(
+        x=df['term'],
+        y=df['gpa'],
+        mode='lines+markers',
+        name='GPA',
+        line=dict(color='#667eea', width=3),
+        marker=dict(size=8, color='#667eea')
+    ))
+    
+    # Add CGPA line
+    fig.add_trace(go.Scatter(
+        x=df['term'],
+        y=df['cgpa'],
+        mode='lines+markers',
+        name='CGPA',
+        line=dict(color='#48bb78', width=3),
+        marker=dict(size=8, color='#48bb78')
+    ))
+    
+    fig.update_layout(
+        title={
+            'text': '📈 Academic Performance Trend',
+            'font': {'size': 20, 'color': '#4a5568'},
+            'x': 0.5,
+            'xanchor': 'center'
+        },
+        xaxis_title='Semester',
+        yaxis_title='GPA/CGPA',
+        template='plotly_white',
+        height=400,
+        margin=dict(l=20, r=20, t=80, b=20),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    return fig
+
+# --- 4. RAG FUNCTIONS ---
+def format_student_data_for_prompt(student_data):
+    """Creates a clean summary of the student's data for the LLM."""
+    if not student_data: 
+        return "No student data available."
+    
+    profile = student_data.get('profile', {})
+    financials = student_data.get('financials', {})
+    attendance = student_data.get('attendance', [])
+    
+    summary = f"""### Student Profile
+- **Name:** {profile.get('student_name', 'N/A')}
+- **Roll No:** {student_data.get('roll_no', 'N/A')}
+- **Semester:** {profile.get('semester', 'N/A')}
+- **CGPA:** {profile.get('cgpa', 'N/A')}
+- **Academic Standing:** {profile.get('academic_standing', 'N/A')}
+
+### Financial Status
+- **Total Remaining Balance:** {financials.get('total_remaining_balance', 'N/A')}
+
+### Attendance Summary
+"""
+    
+    low_attendance_courses = [c for c in attendance if float(c.get('percentage', 100)) < 75]
+    if low_attendance_courses:
+        summary += "- **Warning:** The following courses have attendance below the 75% threshold:\n"
+        summary += "".join(f"  - {course.get('course_name')}: {course.get('percentage')}%\n" for course in low_attendance_courses)
+    else:
+        summary += "- All course attendance records are currently above the 75% threshold.\n"
+    
+    return summary.strip()
+
+def retrieve_context(client, embedding_model, user_query, formatted_student_summary, top_k=5):
+    """Retrieves context and returns both documents and their metadata."""
+    augmented_query = f"Student Summary: {formatted_student_summary}\nUser's Question: {user_query}"
+    collection = client.get_collection(name=COLLECTION_NAME)
+    query_embedding = embedding_model.encode(augmented_query).tolist()
+    results = collection.query(query_embeddings=[query_embedding], n_results=top_k, include=['documents', 'metadatas'])
+    return results
+
+def generate_response_with_groq(user_query, student_data, formatted_student_summary, conversation_history, context_docs):
+    """Generates a personalized response using Groq with advanced prompt engineering."""
+    context_str = "\n\n".join(f"--- Handbook Excerpt ---\n{doc}" for doc in context_docs)
+    history_str = "\n".join([f"Previous {msg['role']}: {msg['content']}" for msg in conversation_history])
+
+    system_prompt = """
+    You are "Superior University's AI Assistant", a friendly, professional, and highly knowledgeable support agent.
+
+    **Your Persona:**
+    - You are helpful, accurate, and always polite.
+    - You MUST address the student by their name in your response.
+    - Your goal is to provide clear, actionable answers based *exclusively* on the information provided.
+
+    **Your Core Directives:**
+    1. **Synthesize ALL Information:** Use conversation history, student record summary, timetable data, and handbook excerpts.
+    2. **Prioritize the New Question:** Focus on answering the user's newest question.
+    3. **Handle Tables & Data:** Parse HTML tables and JSON data accurately.
+    4. **NEVER Invent Information:** If information isn't available, explicitly state this.
+    5. **Structure Your Answers:** Provide direct answers with clear reasoning and markdown formatting.
+    """
+    
+    if any(keyword in user_query.lower() for keyword in ["timetable", "schedule", "my classes", "class schedule"]):
+        timetable_data = student_data.get('timetable', {})
+        user_prompt = f"""
+        ### Conversation History
+        {history_str}
+        
+        ### Student's Record Summary
+        {formatted_student_summary}
+
+        ### Full Timetable Data
+        ```json
+        {json.dumps(timetable_data, indent=2)}
+        ```
+        
+        ### Relevant University Handbook Excerpts
+        {context_str}
+
+        ### New User Question
+        {user_query}
+        
+        **Instruction:** Format the student's complete weekly schedule into a clean, easy-to-read markdown table.
+        """
+    else:
+        user_prompt = f"""
+        ### Conversation History
+        {history_str}
+        
+        ### Student's Record Summary
+        {formatted_student_summary}
+
+        ### Relevant University Handbook Excerpts
+        {context_str}
+
+        ### New User Question
+        {user_query}
+        
+        **Instruction:** Provide a helpful and accurate response based on the information above.
+        """
+    
+    try:
+        groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            model=GROQ_MODEL_NAME,
+            temperature=0,
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        return f"❌ An error occurred while contacting the Groq API: {e}"
+
+# --- 5. MAIN APPLICATION ---
+def main():
+    """Main application function."""
+    st.set_page_config(
+        page_title="Superior University AI Dashboard",
+        page_icon="🎓",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    load_custom_css()
+
+    # --- Initialize session state ---
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+        st.session_state.student_data = None
+        st.session_state.messages = []
+
+
+    # --- Login Screen ---
+    if not st.session_state.logged_in:
+        # UPDATED: Get the existing number *before* calling the component
+                #    These will serve as the initial values for the form fields.
+        default_roll_no = os.getenv("ERP_ROLL_NO", "")
+        default_password = os.getenv("ERP_PASSWORD", "")
+        existing_whatsapp = os.getenv("PARENT_WHATSAPP_NUMBER", "")
+        # UPDATED: Call the component and unpack all four returned values
+        roll_no_input, password_input, parent_whatsapp_input, login_button = create_login_form(
+            default_roll_no=default_roll_no,
+            default_password=default_password,
+            existing_whatsapp_number=existing_whatsapp
+        )
+        
+        if login_button:
+             if not roll_no_input or not password_input:
+                st.error("❌ Roll Number and Password are required.")
+             else:
+                    student_data = check_and_fetch_data(roll_no_input, password_input)
+                    if student_data:
+                        # 4. Only update the .env file for the WhatsApp number, as it's a
+                    #    more permanent setting. We do NOT save the student's password.
+                        if parent_whatsapp_input and parent_whatsapp_input != existing_whatsapp:
+                            update_env_file("PARENT_WHATSAPP_NUMBER", parent_whatsapp_input)
+                            load_dotenv(override=True)
+                    
+                        # Proceed with login
+                        st.session_state.logged_in = True
+                        st.session_state.student_data = student_data
+                        st.session_state.messages = [
+                            {"role": "assistant", "content": f"Hello {student_data['profile']['student_name']}! 👋 Ask me anything about your academic record or university policies."}
+                        ]
+                        st.rerun()
+
+    
+    # --- Main Dashboard (Logged-in State) ---
+    else:
+        student_data = st.session_state.student_data
+        chroma_client, embedding_model = initialize_components()
+        formatted_summary = format_student_data_for_prompt(student_data)
+
+        # --- Sidebar ---
+        with st.sidebar:
+            st.image("https://placehold.co/100x100/764ba2/white?text=SU", width=100)
+            st.title(f"Welcome, {student_data['profile']['student_name'].split()[0]}!")
+
+            # --- START: CORRECTED SECTION ---
+            next_class_info = get_next_class(student_data.get('timetable', {}))
+            
+            if isinstance(next_class_info, dict): # Check if it returned class data
+                 # CORRECTED: Call the function with only the arguments it now expects
+                 create_next_class_card(
+                    course=next_class_info.get('details', 'N/A'),
+                    time=next_class_info.get('time', 'N/A'),
+                    location=next_class_info.get('venue', 'N/A')
+                )
+            else: # It returned a string message like "No classes"
+                # Use a different component for simple messages
+                create_sidebar_content(
+                    title="Today's Schedule",
+                    content=str(next_class_info) # Ensure content is a string
+                )
+            st.markdown("---")
+            st.subheader("📤 Actions")
+
+            if st.button("📧 Send Report to Parent via WhatsApp"):
+                parent_number = os.getenv("PARENT_WHATSAPP_NUMBER")
+
+                if not parent_number:
+                    st.error("No parent WhatsApp number saved. Please add it on the login screen.")
+                else:
+                    with st.spinner(f"Preparing to send report to {parent_number}..."):
+                        # 1. Format the report
+                        report_str = format_student_report(student_data)
+                        
+                        # 2. Send the message
+                        result = send_twilio_whatsapp_report(student_data) 
+
+
+                    # 3. Show the result
+                    if "success" in result:
+                        st.success(result["success"])
+                    else:
+                        st.error(result["error"])
+
+            st.markdown("---")
+            if st.button("🚪 Logout", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+
+        # --- Main Header ---
+        create_welcome_header(student_name=student_data['profile']['student_name'])
+
+      # In your app.py, inside the 'else:' block for the logged-in state
+
+        # --- Metric Cards ---
+        st.subheader("Your Academic Snapshot")
+
+        # Get the specific data points safely
+        cgpa = student_data.get('profile', {}).get('cgpa', 'N/A')
+        semester = student_data.get('profile', {}).get('semester', 'N/A')
+        standing = student_data.get('profile', {}).get('academic_standing', 'N/A')
+        balance = student_data.get('financials', {}).get('total_remaining_balance', 'N/A')
+
+            # Use Streamlit's built-in columns for layout. This is the most reliable way.
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+                st.markdown(f"""
+                <div class="metric-card fade-in">
+                    <h3>Current CGPA</h3>
+                    <p class="value">{cgpa}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+        with col2:
+                st.markdown(f"""
+                <div class="metric-card fade-in">
+                    <h3>Semester</h3>
+                    <p class="value">{semester}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+        with col3:
+                st.markdown(f"""
+                <div class="metric-card fade-in">
+                    <h3>Academic Standing</h3>
+                    <p class="value">{standing}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+        with col4:
+                st.markdown(f"""
+                <div class="metric-card fade-in">
+                    <h3>Balance Due</h3>
+                    <p class="value">{balance}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+        # Main Tabs
+        tab1, tab2, tab3, tab4 = st.tabs(["💬 AI Assistant", "📊 Academic Analytics", "📚 Enrolled Courses", "🗓️ Weekly Schedule"])
+        with tab1:
+            st.markdown("""
+            <div class="chat-container">
+                <h2>🤖 AI Assistant Chat</h2>
+                <p>Ask me anything about your academic performance, university policies, or get help with your studies!</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Chat Interface
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+            if prompt := st.chat_input("Ask a question..."):
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"): 
+                    st.markdown(prompt)
+
+                with st.chat_message("assistant"):
+                    with st.spinner("🔍 Analyzing..."):
+                        history_for_prompt = st.session_state.messages[-3:-1]
+                        results = retrieve_context(chroma_client, embedding_model, prompt, formatted_summary)
+                        response = generate_response_with_groq(
+                            prompt, 
+                            student_data, 
+                            formatted_summary, 
+                            history_for_prompt, 
+                            results['documents'][0]
+                        )
+                        st.markdown(response)
+                        
+                        with st.expander("🔍 View Retrieved Sources"):
+                            for i, metadata in enumerate(results['metadatas'][0]):
+                                st.write(f"**Source {i+1}:** File `{metadata['source_file']}`, Page `{metadata['page_number']}`")
+                                st.info(results['documents'][0][i])
+                
+                st.session_state.messages.append({"role": "assistant", "content": response})
+
+    
+        with tab2:
+            st.header("📊 Academic Analytics")
+            st.markdown("An overview of your academic performance and attendance records.")
+
+            # --- GPA/CGPA TREND CHART ---
+            if student_data.get('semester_results'):
+                st.subheader("📈 GPA & CGPA Trend")
+                gpa_fig = create_gpa_chart(student_data['semester_results'])
+                st.plotly_chart(gpa_fig, use_container_width=True)
+                st.markdown("---")
+            
+            # --- DETAILED SEMESTER RESULTS (NEW INTERACTIVE VIEW) ---
+            if student_data.get('semester_results'):
+                st.subheader("🎓 Detailed Semester Results")
+                
+                # Get the semester results data
+                results_data = student_data['semester_results']
+                
+                # Loop through each semester and create an expander for it
+                for semester in results_data:
+                    term_name = semester.get('term', 'Unknown Semester')
+                    gpa = semester.get('gpa', 'N/A')
+                    cgpa = semester.get('cgpa', 'N/A')
+                    courses = semester.get('courses', [])
+                    
+                    with st.expander(f"**{term_name}** | GPA: {gpa} | CGPA: {cgpa}"):
+                        if courses:
+                            # Convert the list of course dictionaries to a pandas DataFrame for nice display
+                            courses_df = pd.DataFrame(courses)
+                            # Rename columns for better readability
+                            courses_df.columns = ["Course Name", "Credits", "Marks Obtained", "Final Grade"]
+                            st.dataframe(courses_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.write("No detailed course results found for this semester.")
+                st.markdown("---")
+
+            # --- ATTENDANCE OVERVIEW ---
+            if student_data.get('attendance'):
+                st.subheader("✅ Attendance Overview")
+                attendance_fig = create_attendance_chart(student_data['attendance'])
+                st.plotly_chart(attendance_fig, use_container_width=True)
+
+        with tab3:
+            st.header("📚 Enrolled Courses Overview")
+            
+            # Safely get the list of enrolled courses from the student data
+            enrolled_courses = student_data.get('enrolled_courses', [])
+            
+            if not enrolled_courses:
+                st.warning("No enrolled course data found. The scraper may need to be updated or the data is not on the portal.")
+            else:
+                # --- Separate the courses into two lists based on their status ---
+                grading_in_progress = [c for c in enrolled_courses if c['status'] == "Grading in progress"]
+                active_classes = [c for c in enrolled_courses if c['status'] == "Active Class"]
+                
+                # --- 1. Display the "Grading in Progress" section first ---
+                if grading_in_progress:
+                    st.subheader("⏳ Classes Awaiting Grades")
+                    # Loop through each course in this category and display its card
+                    for course in grading_in_progress:
+                        # Use the correct dictionary keys: 'course_name' and 'course_code'
+                        st.markdown(f"""
+                        <div class="stats-card">
+                            <h4>{course.get('course_name', 'N/A')}</h4>
+                            <p><strong>Code:</strong> {course.get('course_code', 'N/A')} | <strong>Credits:</strong> {course.get('credits', 'N/A')}</p>
+                            <p><span style="color: #ED8936; font-weight: bold;">Status: {course.get('status', 'N/A')}</span></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    st.markdown("---") # Add a separator line after the section
+                
+                # --- 2. Display the "Active Classes" section second ---
+                if active_classes:
+                    st.subheader("✅ Active Classes")
+                    # Loop through each course in this category and display its card
+                    for course in active_classes:
+                        # Use the correct dictionary keys: 'course_name' and 'course_code'
+                        st.markdown(f"""
+                        <div class="stats-card">
+                            <h4>{course.get('course_name', 'N/A')}</h4>
+                            <p><strong>Code:</strong> {course.get('course_code', 'N/A')} | <strong>Credits:</strong> {course.get('credits', 'N/A')}</p>
+                            <p><span style="color: #48BB78; font-weight: bold;">Status: {course.get('status', 'N/A')}</span></p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # Add a helpful message if no courses were found in either category after filtering
+                if not grading_in_progress and not active_classes:
+                    st.info("No courses with 'Active' or 'Grading in progress' status were found.")
+        with tab4:
+            st.markdown("## 🗓️ Weekly Schedule")
+            
+            timetable = student_data.get('timetable', {})
+            if timetable:
+                # Create a structured weekly view
+                days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                
+                for day in days:
+                    if day in timetable and timetable[day]:
+                        st.markdown(f"### {day}")
+                        
+                        # Create columns for each class
+                        classes = sorted(timetable[day], key=lambda x: x.get('time', ''))
+                        
+                        for class_info in classes:
+                            with st.container():
+                                st.markdown(f"""
+                            <div class="schedule-card">
+                                <h4>{class_info.get('details', 'Unknown Course')}</h4>
+                                <p><strong>Time:</strong> {class_info.get('time', 'N/A')}</p>
+                                <p><strong>Venue:</strong> {class_info.get('venue', 'N/A')}</p> 
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        st.markdown("---")
+                    else:
+                        st.markdown(f"### {day}")
+                        st.info(f"No classes scheduled for {day}")
+                        st.markdown("---")
+            else:
+                st.warning("No timetable data available.")
+
+        # Footer
+        st.markdown("---")
+        st.markdown("""
+        <div class="footer">
+            <p>🎓 Superior University AI Dashboard</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
