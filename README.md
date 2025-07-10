@@ -5,9 +5,8 @@ Uploading chrome_9lSUjOvKzP.mp4…
 # 🧠 AI-Powered University ERP Assistant  
 > 🚀 Say Goodbye to Boring Portals — Just Talk to Your ERP like ChatGPT 🎓
 
-![Demo Screenshot]([link-to-your-screenshot-or-gif](https://github.com/user-attachments/assets/1e617653-5f8d-49a3-b54d-07f0bd4d1250
-Uploading chrome_9lSUjOvKzP.mp4…
-))
+![Demo]([[link-to-your-screenshot-or-gif](https://github.com/user-attachments/assets/1e617653-5f8d-49a3-b54d-07f0bd4d1250
+Uploading chrome_9lSUjOvKzP.mp4…)])
 
 ---
 
