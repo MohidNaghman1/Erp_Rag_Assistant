@@ -1,0 +1,345 @@
+{
+    "roll_no": "SU92-BSAIM-F23-049",
+    "profile": {
+        "student_name": "Hafiz Mohid Naghman",
+        "academic_standing": "Excellent",
+        "semester": "4th",
+        "cgpa": "3.85",
+        "completed_credits": "51.0",
+        "inprogress_credits": "21.0",
+        "today_classes": "No class is scheduled"
+    },
+    "attendance": [
+        {
+            "course_name": "Differential Equations",
+            "conducted": "17",
+            "attended": "17",
+            "percentage": "100.0"
+        },
+        {
+            "course_name": "Operating Systems (Theory)",
+            "conducted": "25",
+            "attended": "24",
+            "percentage": "96.0"
+        },
+        {
+            "course_name": "Operating Systems (Lab)",
+            "conducted": "13",
+            "attended": "11",
+            "percentage": "84.62"
+        },
+        {
+            "course_name": "Database Systems (Theory)",
+            "conducted": "32",
+            "attended": "29",
+            "percentage": "90.63"
+        },
+        {
+            "course_name": "Database Systems (Lab)",
+            "conducted": "16",
+            "attended": "15",
+            "percentage": "93.75"
+        },
+        {
+            "course_name": "Programming for Artificial Intelligence (Lab)",
+            "conducted": "16",
+            "attended": "15",
+            "percentage": "93.75"
+        },
+        {
+            "course_name": "Introduction to Data Science",
+            "conducted": "16",
+            "attended": "14",
+            "percentage": "87.5"
+        },
+        {
+            "course_name": "Programming for Artificial Intelligence (Theory)",
+            "conducted": "15",
+            "attended": "14",
+            "percentage": "93.33"
+        }
+    ],
+    "semester_results": [
+        {
+            "term": "FALL 2023",
+            "gpa": "3.94",
+            "cgpa": "3.94",
+            "courses": [
+                {
+                    "course_name": "English Composition & Comprehension",
+                    "credits": "3.0",
+                    "marks_obtained": "80.0",
+                    "final_grade": "A-"
+                },
+                {
+                    "course_name": "Discrete Structures",
+                    "credits": "3.0",
+                    "marks_obtained": "85.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Introduction to Information & Communication Technologies (Theory)",
+                    "credits": "3.0",
+                    "marks_obtained": "85.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Introduction to Information & Communication Technologies (Lab)",
+                    "credits": "1.0",
+                    "marks_obtained": "86.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Programming Fundamentals (Theory)",
+                    "credits": "3.0",
+                    "marks_obtained": "85.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Programming Fundamentals (Lab)",
+                    "credits": "1.0",
+                    "marks_obtained": "86.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Introduction to Logic",
+                    "credits": "3.0",
+                    "marks_obtained": "95.0",
+                    "final_grade": "A"
+                }
+            ]
+        },
+        {
+            "term": "SPRING 2024",
+            "gpa": "3.66",
+            "cgpa": "3.8",
+            "courses": [
+                {
+                    "course_name": "Pakistan Studies",
+                    "credits": "2.0",
+                    "marks_obtained": "78.0",
+                    "final_grade": "B+"
+                },
+                {
+                    "course_name": "Communication & Presentation Skills",
+                    "credits": "3.0",
+                    "marks_obtained": "80.0",
+                    "final_grade": "A-"
+                },
+                {
+                    "course_name": "Probability & Statistics",
+                    "credits": "3.0",
+                    "marks_obtained": "78.0",
+                    "final_grade": "B+"
+                },
+                {
+                    "course_name": "Islamic Studies",
+                    "credits": "2.0",
+                    "marks_obtained": "75.0",
+                    "final_grade": "B+"
+                },
+                {
+                    "course_name": "Object Oriented Programming (Lab)",
+                    "credits": "1.0",
+                    "marks_obtained": "96.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Object Oriented Programming (Theory)",
+                    "credits": "3.0",
+                    "marks_obtained": "89.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Calculus & Analytical Geometry",
+                    "credits": "3.0",
+                    "marks_obtained": "97.0",
+                    "final_grade": "A"
+                }
+            ]
+        },
+        {
+            "term": "FALL 2024",
+            "gpa": "3.94",
+            "cgpa": "3.85",
+            "courses": [
+                {
+                    "course_name": "Technical & Business Writing",
+                    "credits": "3.0",
+                    "marks_obtained": "80.0",
+                    "final_grade": "A-"
+                },
+                {
+                    "course_name": "Information Security",
+                    "credits": "3.0",
+                    "marks_obtained": "85.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Linear Algebra",
+                    "credits": "3.0",
+                    "marks_obtained": "85.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Data Structures & Algorithms (Theory)",
+                    "credits": "3.0",
+                    "marks_obtained": "89.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Data Structures & Algorithms (Lab)",
+                    "credits": "1.0",
+                    "marks_obtained": "85.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Artificial Intelligence (Theory)",
+                    "credits": "3.0",
+                    "marks_obtained": "90.0",
+                    "final_grade": "A"
+                },
+                {
+                    "course_name": "Artificial Intelligence (Lab)",
+                    "credits": "1.0",
+                    "marks_obtained": "96.0",
+                    "final_grade": "A"
+                }
+            ]
+        }
+    ],
+    "financials": {
+        "total_remaining_balance": 0.0
+    },
+    "timetable": {
+        "Monday": [
+            {
+                "time": "09:20 - 10:40",
+                "details": "Database Systems (Theory)",
+                "venue": "Room-27 ( Lecture )"
+            },
+            {
+                "time": "12:05 - 13:25",
+                "details": "Operating Systems (Theory)",
+                "venue": "Room-26 ( Lecture )"
+            },
+            {
+                "time": "13:30 - 16:10",
+                "details": "Differential Equations",
+                "venue": "Room-28 ( Lecture )"
+            }
+        ],
+        "Tuesday": [
+            {
+                "time": "08:00 - 09:20",
+                "details": "Database Systems (Theory)",
+                "venue": "Auditorium ( Lecture )"
+            },
+            {
+                "time": "09:20 - 10:40",
+                "details": "Operating Systems (Theory)",
+                "venue": "Room-26 ( Lecture )"
+            },
+            {
+                "time": "13:30 - 16:10",
+                "details": "Operating Systems (Lab)",
+                "venue": "Auditorium ( Lab )"
+            }
+        ],
+        "Wednesday": [
+            {
+                "time": "08:00 - 10:40",
+                "details": "Database Systems (Lab)",
+                "venue": "Room-27 ( Lab )"
+            },
+            {
+                "time": "10:45 - 13:25",
+                "details": "Programming for Artificial Intellig..",
+                "venue": "Room-26 ( Lab )"
+            }
+        ],
+        "Thursday": [
+            {
+                "time": "08:00 - 10:40",
+                "details": "Programming for Artificial Intellig..",
+                "venue": "Room-27 ( Lecture )"
+            }
+        ],
+        "Friday": [
+            {
+                "time": "08:00 - 10:30",
+                "details": "Introduction to Data Science",
+                "venue": "Room-29 ( Lecture )"
+            },
+            {
+                "time": "10:30 - 13:00",
+                "details": "Database Systems (Lab)",
+                "venue": "Auditorium ( Lab )"
+            }
+        ],
+        "Saturday": [],
+        "Sunday": []
+    },
+    "enrolled_courses": [
+        {
+            "course_name": "Differential Equations",
+            "course_code": "CCQ601130",
+            "credits": "3.0",
+            "status": "Grading in progress"
+        },
+        {
+            "course_name": "Programming for Artificial Intelligence (Lab)",
+            "course_code": "CAI601410",
+            "credits": "1.0",
+            "status": "Grading in progress"
+        },
+        {
+            "course_name": "Software Engineering",
+            "course_code": "CSE601110",
+            "credits": "3.0",
+            "status": "Active Class"
+        },
+        {
+            "course_name": "Analysis of Algorithms",
+            "course_code": "CAL601190",
+            "credits": "3.0",
+            "status": "Active Class"
+        },
+        {
+            "course_name": "Computer Vision (Theory)",
+            "course_code": "COS601330",
+            "credits": "2.0",
+            "status": "Active Class"
+        },
+        {
+            "course_name": "Computer Vision (Lab)",
+            "course_code": "COS601340",
+            "credits": "1.0",
+            "status": "Active Class"
+        },
+        {
+            "course_name": "Computer Networks (Theory)",
+            "course_code": "CNC601240",
+            "credits": "3.0",
+            "status": "Active Class"
+        },
+        {
+            "course_name": "Computer Networks (Lab)",
+            "course_code": "CNC601290",
+            "credits": "1.0",
+            "status": "Active Class"
+        },
+        {
+            "course_name": "Digital Logic Design (Theory)",
+            "course_code": "CEE601170",
+            "credits": "3.0",
+            "status": "Active Class"
+        },
+        {
+            "course_name": "Digital Logic Design (Lab)",
+            "course_code": "CEE601360",
+            "credits": "1.0",
+            "status": "Active Class"
+        }
+    ]
+}
