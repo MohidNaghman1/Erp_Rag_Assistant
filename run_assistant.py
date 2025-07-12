@@ -58,24 +58,37 @@ def check_and_fetch_data(roll_no, password):
     file_path = os.path.join(DATA_FOLDER, f"{roll_no}.json")
 
     if os.path.exists(file_path):
+        # This part remains the same - quick load from cache
         st.toast("✅ Found cached data. Loading from file.", icon="📄")
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     else:
+        # --- THIS IS THE NEW LOGIC FOR FIRST-TIME FETCH ---
         st.toast("🔄 No cached data. Fetching live data from ERP...", icon="📡")
-        with st.spinner(f"🔗 Connecting to ERP for {roll_no}..."):
+        
+        # 1. Display the informational message to manage user expectations.
+        st.info(
+            "**Hold tight!** Since this is your first time logging in, "
+            "we're fetching all your academic data from the portal. "
+            "This may take up to 2-3 minutes. Please do not close this window."
+        )
+
+        # 2. The spinner will now appear below the info message.
+        with st.spinner(f"🔗 Connecting to ERP and scraping data for {roll_no}..."):
             scraped_data = run_scraper(roll_no, password)
         
+        # 3. The rest of the logic remains the same.
         if scraped_data and "error" not in scraped_data:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(scraped_data, f, indent=4)
             st.balloons()
-            st.success("🎉 Live data fetched and saved for future use!")
+            st.success("🎉 Live data fetched and saved! Future logins will be instant.")
             return scraped_data
         else:
             error_msg = scraped_data.get('error', 'an unknown error occurred') if scraped_data else 'an unknown error occurred'
             st.error(f"❌ Failed to fetch data. Error: {error_msg}")
             return None
+
 
 @st.cache_resource
 def initialize_components():
