@@ -101,10 +101,8 @@ def initialize_components():
     with st.spinner("🚀 Initializing AI Assistant..."):
         try:
             embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
-            client = chromadb.PersistentClient(path=db_path)
-            
-            # Verification step
-            collection = client.get_collection(name=COLLECTION_NAME)
+            client = chromadb.PersistentClient(path="./university_db1")
+            collection = client.get_collection("university_handbook")
             print(f"✅ Successfully loaded DB. Collection has {collection.count()} items.")
 
         except Exception as e:
