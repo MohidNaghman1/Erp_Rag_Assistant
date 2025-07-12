@@ -92,49 +92,69 @@ def check_and_fetch_data(roll_no, password):
 
 
 
-
 @st.cache_resource
 def initialize_components():
     """
-    Initializes components by loading pre-chunked data from a JSON file
-    and builds an IN-MEMORY ChromaDB instance.
+    Initializes components with detailed logging and correct filename.
     """
-    with st.spinner("🚀 Initializing AI Assistant..."):
+    print("--- Starting AI Component Initialization ---")
+    
+    with st.spinner("🚀 Initializing AI Assistant... (this may take a moment)"):
         
-        embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
-        client = chromadb.Client() # In-memory client
+        # --- 1. Load Embedding Model ---
+        try:
+            print("    -> Attempting to load SentenceTransformer model...")
+            embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
+            print("    ✅ SentenceTransformer model loaded successfully.")
+        except Exception as e:
+            print(f"    ❌ FAILED to load SentenceTransformer model. Error: {e}")
+            st.error(f"Fatal Error: Could not load the embedding model. Please check the logs. Error: {e}")
+            st.stop()
+
+        # --- 2. Initialize ChromaDB Client ---
+        print("    -> Initializing in-memory ChromaDB client...")
+        client = chromadb.Client()
         collection = client.get_or_create_collection(name=COLLECTION_NAME)
+        print("    ✅ ChromaDB client initialized successfully.")
 
-        # Populate the collection ONLY IF it's empty
+        # --- 3. Load and Populate Documents ---
         if collection.count() == 0:
-            print("Vector collection is empty. Populating from 'chunks_data.json'...")
-            
-            # 1. Load your pre-processed JSON file
-            with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
-                documents = json.load(f) # Assuming the JSON is a list of strings
-            
-            ids = [f"handbook_chunk_{i}" for i in range(len(documents))]
-            
-            # 2. Generate embeddings (this only happens once per session)
-            embeddings = embedding_model.encode(documents).tolist()
-            
-            # 3. Add to the in-memory collection
-            collection.add(
-                embeddings=embeddings,
-                documents=documents,
-                ids=ids
-            )
-            print(f"✅ Collection populated with {len(documents)} documents.")
+            # --- THIS IS THE CORRECTED LINE ---
+            filename_to_load = "final_chunked_data.json"
+            print(f"    -> Vector collection is empty. Attempting to populate from '{filename_to_load}'...")
+            # --- END OF CORRECTION ---
 
-    # We need to return the documents as well for our keyword search stage
-    # Let's load them once and cache them.
-    with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
-        all_documents = json.load(f)
+            try:
+                with open(filename_to_load, 'r', encoding='utf-8') as f:
+                    # Assuming the JSON file contains a list of document strings
+                    documents = json.load(f)
+                
+                ids = [f"handbook_chunk_{i}" for i in range(len(documents))]
+                
+                print(f"    -> Loaded {len(documents)} documents. Generating embeddings...")
+                embeddings = embedding_model.encode(documents).tolist()
+                
+                print("    -> Adding documents to collection...")
+                collection.add(
+                    embeddings=embeddings,
+                    documents=documents,
+                    ids=ids
+                )
+                print(f"    ✅ Collection populated with {len(documents)} documents.")
 
-    return client, embedding_model, all_documents
+            except FileNotFoundError:
+                print(f"    ❌ FAILED to populate collection: '{filename_to_load}' not found!")
+                st.error(f"Fatal Error: The '{filename_to_load}' file is missing from the repository. Please upload it and redeploy.")
+                st.stop()
+            except Exception as e:
+                print(f"    ❌ FAILED to populate collection. Error: {e}")
+                st.error(f"Fatal Error: Could not load and process documents for the vector DB. Error: {e}")
+                st.stop()
+        else:
+            print(f"    ✅ Collection is already populated with {collection.count()} documents.")
 
-# In main()
-chroma_client, embedding_model, all_documents = initialize_components()
+    print("--- AI Component Initialization Complete ---")
+    return client, embedding_model
 
 def get_next_class(timetable):
     """Finds the user's next scheduled class and returns its data or a status message."""
@@ -654,7 +674,6 @@ def main():
                         results = retrieve_context(
                             chroma_client, 
                             embedding_model, 
-                            all_documents, # Pass the loaded documents
                             prompt, 
                             formatted_summary
                         )                    
