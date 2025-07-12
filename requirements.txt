@@ -1,5 +1,5 @@
 # Use a version of chromadb known to be compatible with Streamlit Cloud's environment
-chromadb==0.4.15
+chromadb==0.4.24
 
 # Your other direct dependencies
 streamlit
