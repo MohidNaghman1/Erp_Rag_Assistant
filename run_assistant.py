@@ -504,7 +504,7 @@ def main():
                         report_str = format_student_report(student_data)
                         
                         # 2. Send the message
-                        result = send_twilio_whatsapp_report(report_str) 
+                        result = send_twilio_whatsapp_report(student_data) 
 
 
                     # 3. Show the result
