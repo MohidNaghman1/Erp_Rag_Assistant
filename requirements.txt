@@ -1,3 +1,5 @@
+# List pysqlite3-binary FIRST to ensure it's installed before chromadb.
+pysqlite3-binary
 # Use a version of chromadb known to be compatible with Streamlit Cloud's environment
 chromadb==0.4.24
 

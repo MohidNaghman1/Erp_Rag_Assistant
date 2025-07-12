@@ -1,7 +1,7 @@
+# In run_assistant.py (at the very top of the file)
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-
 
 
 import streamlit as st
