@@ -1,0 +1,11 @@
+# packages.txt
+
+# For Selenium to work
+google-chrome-stable
+
+# For unstructured/pytesseract to work
+tesseract-ocr
+libtesseract-dev
+
+# General build tools, always good to have
+build-essential
