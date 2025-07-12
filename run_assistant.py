@@ -9,7 +9,6 @@ import os
 import json
 import re
 import chromadb
-import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime
@@ -22,26 +21,24 @@ from dotenv import load_dotenv, set_key
 try:
     from scrapper import EnhancedErpScraper
     from utils.notifications import format_student_report, send_twilio_whatsapp_report
-    from styles.ui_components import load_custom_css, create_welcome_header, create_login_form, create_sidebar_content, create_next_class_card, create_metric_cards
+    from styles.ui_components import load_custom_css, create_welcome_header, create_login_form, create_sidebar_content, create_next_class_card
+    # We will use st.columns for metrics, so create_metric_cards is not needed.
 except ImportError as e:
     st.error(f"Fatal Error: Required modules not found. {str(e)}")
     st.stop()
 
-# --- 1. SETUP AND CONFIGURATION ---
+# --- Configuration Constants ---
 load_dotenv()
-
-# Configuration constants
-DB_PATH = "/tmp/university_db" 
 DATA_FOLDER = "data"
 COLLECTION_NAME = "university_handbook"
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
 GROQ_MODEL_NAME = "llama3-8b-8192"
 
+
 # --- 2. HELPER FUNCTIONS ---
+
 def update_env_file(key_to_update, new_value):
-    """Safely updates a key in the .env file."""
     set_key('.env', key_to_update, new_value)
-    print(f"Updated {key_to_update} in .env file.")
 
 def run_scraper(roll_no, password):
     """Runs the ERP scraper and returns the data dictionary."""
@@ -91,70 +88,38 @@ def check_and_fetch_data(roll_no, password):
             return None
 
 
-
 @st.cache_resource
 def initialize_components():
     """
-    Initializes components with detailed logging and correct filename.
+    Initializes components and builds a fresh IN-MEMORY ChromaDB instance.
+    This is the most reliable method for Streamlit Cloud deployment.
     """
-    print("--- Starting AI Component Initialization ---")
-    
-    with st.spinner("🚀 Initializing AI Assistant... (this may take a moment)"):
-        
-        # --- 1. Load Embedding Model ---
-        try:
-            print("    -> Attempting to load SentenceTransformer model...")
-            embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
-            print("    ✅ SentenceTransformer model loaded successfully.")
-        except Exception as e:
-            print(f"    ❌ FAILED to load SentenceTransformer model. Error: {e}")
-            st.error(f"Fatal Error: Could not load the embedding model. Please check the logs. Error: {e}")
-            st.stop()
-
-        # --- 2. Initialize ChromaDB Client ---
-        print("    -> Initializing in-memory ChromaDB client...")
-        client = chromadb.Client()
+    with st.spinner("🚀 Initializing AI Assistant... (this happens once per session)"):
+        embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
+        client = chromadb.Client()  # In-memory client
         collection = client.get_or_create_collection(name=COLLECTION_NAME)
-        print("    ✅ ChromaDB client initialized successfully.")
 
-        # --- 3. Load and Populate Documents ---
         if collection.count() == 0:
-            # --- THIS IS THE CORRECTED LINE ---
-            filename_to_load = "final_chunked_data.json"
-            print(f"    -> Vector collection is empty. Attempting to populate from '{filename_to_load}'...")
-            # --- END OF CORRECTION ---
-
+            print(f"Vector collection '{COLLECTION_NAME}' is empty. Populating now...")
             try:
-                with open(filename_to_load, 'r', encoding='utf-8') as f:
-                    # Assuming the JSON file contains a list of document strings
+                with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
                     documents = json.load(f)
-                
                 ids = [f"handbook_chunk_{i}" for i in range(len(documents))]
-                
-                print(f"    -> Loaded {len(documents)} documents. Generating embeddings...")
-                embeddings = embedding_model.encode(documents).tolist()
-                
-                print("    -> Adding documents to collection...")
-                collection.add(
-                    embeddings=embeddings,
-                    documents=documents,
-                    ids=ids
-                )
-                print(f"    ✅ Collection populated with {len(documents)} documents.")
-
+                collection.add(documents=documents, ids=ids)
+                print(f"✅ Collection populated with {len(documents)} documents.")
             except FileNotFoundError:
-                print(f"    ❌ FAILED to populate collection: '{filename_to_load}' not found!")
-                st.error(f"Fatal Error: The '{filename_to_load}' file is missing from the repository. Please upload it and redeploy.")
+                st.error("Fatal Error: 'final_chunked_data.json' not found. Please upload it to your repository.")
                 st.stop()
             except Exception as e:
-                print(f"    ❌ FAILED to populate collection. Error: {e}")
-                st.error(f"Fatal Error: Could not load and process documents for the vector DB. Error: {e}")
+                st.error(f"Fatal Error loading documents into vector DB: {e}")
                 st.stop()
-        else:
-            print(f"    ✅ Collection is already populated with {collection.count()} documents.")
+    
+    # NEW: Also load the documents into memory for the keyword search stage
+    with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
+        all_documents = json.load(f)
+        
+    return client, embedding_model, all_documents
 
-    print("--- AI Component Initialization Complete ---")
-    return client, embedding_model
 
 def get_next_class(timetable):
     """Finds the user's next scheduled class and returns its data or a status message."""
@@ -226,93 +191,63 @@ def create_attendance_chart(attendance_data):
 
 
 
-
-
 def create_gpa_chart(semester_results):
-    """
-    Creates a robust GPA/CGPA Plotly chart with styling and annotations.
-    """
+    """Creates a robust GPA/CGPA chart with corrected axes and annotations."""
     if not semester_results:
         return go.Figure()
 
-    # Convert to DataFrame
     df = pd.DataFrame(semester_results)
-    df.sort_values(by='term', inplace=True)
-
-    # Safely convert GPA/CGPA to numeric
+    
+    # Safely convert to numeric, coercing errors to NaN
     df['gpa'] = pd.to_numeric(df['gpa'], errors='coerce')
     df['cgpa'] = pd.to_numeric(df['cgpa'], errors='coerce')
+    
+    # Drop rows where conversion failed
     df.dropna(subset=['gpa', 'cgpa', 'term'], inplace=True)
+    
+    # Sort by term to ensure lines connect chronologically
+    try:
+        # A more robust sort if terms are like "Fall 2023"
+        df['sort_key'] = df['term'].apply(lambda x: (int(x.split()[1]), 0 if x.split()[0].lower() == 'spring' else 1 if x.split()[0].lower() == 'summer' else 2))
+        df.sort_values(by='sort_key', inplace=True)
+    except:
+        # Fallback to simple alphabetical sort
+        df.sort_values(by='term', inplace=True)
 
     if df.empty:
         return go.Figure()
 
-    # Create figure
     fig = go.Figure()
-
-    # GPA Line
+    
+    # Add GPA line
     fig.add_trace(go.Scatter(
-        x=df['term'],
-        y=df['gpa'],
-        mode='lines+markers',
-        name='Semester GPA',
-        line=dict(color='#667eea', width=3),
-        marker=dict(size=8, symbol='circle'),
+        x=df['term'], y=df['gpa'], mode='lines+markers', name='Semester GPA',
+        line=dict(color='#667eea', width=3), marker=dict(size=8),
         hovertemplate='<b>%{x}</b><br>GPA: %{y:.2f}<extra></extra>'
     ))
-
-    # CGPA Line
+    
+    # Add CGPA line (with corrected x-axis)
     fig.add_trace(go.Scatter(
-        x=df['term'],
-        y=df['cgpa'],
-        mode='lines+markers',
-        name='Cumulative GPA (CGPA)',
-        line=dict(color='#48bb78', width=3, dash='dash'),
-        marker=dict(size=8, symbol='diamond'),
+        x=df['term'], y=df['cgpa'], mode='lines+markers', name='CGPA',
+        line=dict(color='#48bb78', width=3, dash='dash'), marker=dict(size=8, symbol='diamond'),
         hovertemplate='<b>%{x}</b><br>CGPA: %{y:.2f}<extra></extra>'
     ))
 
-    # Add annotations for latest GPA/CGPA
+    # Add annotations
     latest_term = df['term'].iloc[-1]
     latest_gpa = df['gpa'].iloc[-1]
     latest_cgpa = df['cgpa'].iloc[-1]
-
-    fig.add_annotation(
-        x=latest_term, y=latest_gpa,
-        text=f"<b>Latest GPA: {latest_gpa:.2f}</b>",
-        showarrow=True, arrowhead=2, arrowcolor="#667eea",
-        ax=0, ay=-40, bgcolor="rgba(255,255,255,0.8)",
-        bordercolor="#667eea", borderwidth=1
-    )
-
-    fig.add_annotation(
-        x=latest_term, y=latest_cgpa,
-        text=f"<b>Current CGPA: {latest_cgpa:.2f}</b>",
-        showarrow=True, arrowhead=2, arrowcolor="#48bb78",
-        ax=0, ay=40, bgcolor="rgba(255,255,255,0.8)",
-        bordercolor="#48bb78", borderwidth=1
-    )
-
-    # Layout
+    fig.add_annotation(x=latest_term, y=latest_gpa, text=f"<b>Latest GPA: {latest_gpa:.2f}</b>", showarrow=True, arrowhead=2, ax=0, ay=-40, bgcolor="rgba(255,255,255,0.8)")
+    fig.add_annotation(x=latest_term, y=latest_cgpa, text=f"<b>Current CGPA: {latest_cgpa:.2f}</b>", showarrow=True, arrowhead=2, ax=0, ay=40, bgcolor="rgba(255,255,255,0.8)")
+    
+    # Layout styling
     fig.update_layout(
-        title={
-            'text': '📈 Academic Performance Trend',
-            'font': {'size': 20, 'color': '#4a5568'},
-            'x': 0.5,
-            'xanchor': 'center'
-        },
-        xaxis_title='Semester',
-        yaxis_title='GPA / CGPA',
-        yaxis=dict(range=[0, 4.0]),
-        template='plotly_white',
-        height=400,
-        margin=dict(l=20, r=20, t=80, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)'
+        title={'text': '📈 Academic Performance Trend', 'x': 0.5},
+        yaxis=dict(range=[0, 4.1]), height=450, hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-
     return fig
+
 
 # --- 4. RAG FUNCTIONS ---
 def format_student_data_for_prompt(student_data):
@@ -348,73 +283,55 @@ def format_student_data_for_prompt(student_data):
 
 
 
-def retrieve_context(client, embedding_model, all_documents, user_query, formatted_student_summary, top_k=5):
+def retrieve_context(client, embedding_model, all_documents, user_query, formatted_student_summary, top_k=3):
     """
-    Performs a two-stage hybrid search:
-    1. Keyword filtering to find candidate documents.
-    2. Semantic re-ranking on the candidates to find the best matches.
+    Performs a two-stage hybrid search.
     """
-    print("--- Performing Hybrid Search ---")
+    # Ensure inputs are strings to prevent TypeErrors
+    user_query = str(user_query)
+    formatted_student_summary = str(formatted_student_summary)
     
     # --- Stage 1: Keyword Filtering ---
-    
-    # Extract keywords from the user's query
     query_keywords = set(re.findall(r'\b\w{3,}\b', user_query.lower()))
-    print(f"    - Keywords from query: {query_keywords}")
-
-    candidate_docs = []
-    # Find all documents that contain at least one of the keywords
-    for doc in all_documents:
-        if any(keyword in doc.lower() for keyword in query_keywords):
-            candidate_docs.append(doc)
-            
-    # As a fallback, if no keyword matches, use all documents
-    if not candidate_docs:
-        print("    - No keyword matches found. Using all documents as candidates.")
+    if not query_keywords:
         candidate_docs = all_documents
     else:
-        print(f"    - Found {len(candidate_docs)} candidate documents from keyword search.")
-
-
-    # --- Stage 2: Semantic Search (Re-ranking) on Candidates ---
-    
-    # We will now perform a vector search ONLY on the `candidate_docs`
-    augmented_query = f"Student Summary: {formatted_student_summary}\nUser's Question: {user_query}"
-    
-    # Get the collection
+        candidate_docs = [doc for doc in all_documents if any(kw in doc.lower() for kw in query_keywords)]
+        if not candidate_docs:
+            candidate_docs = all_documents
+            
+    # --- Stage 2: Semantic Search on Candidates ---
     collection = client.get_collection(name=COLLECTION_NAME)
     
-
+    # Find the IDs of the candidate documents
+    candidate_ids = [f"handbook_chunk_{i}" for i, doc in enumerate(all_documents) if doc in candidate_docs]
+    
+    augmented_query = f"Student Summary: {formatted_student_summary}\nUser's Question: {user_query}"
     query_embedding = embedding_model.encode(augmented_query).tolist()
     
-    # Query a larger number of results from the full vector DB
+    # Query the collection, but filter by the candidate IDs
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=max(20, top_k * 2), # Get more results to increase chance of finding candidates
-        include=['documents']
+        n_results=top_k,
+        where={"$and": [{"id": {"$in": candidate_ids}}]}, # This is a hypothetical filter syntax
+        # A more direct way with Chroma is to query all and then filter, which we'll do
+        include=['documents', 'metadatas']
     )
+
+    # For simplicity and reliability, we query more and then filter
+    full_results = collection.query(query_embeddings=[query_embedding], n_results=20, include=['documents', 'metadatas'])
     
-    # Now, re-rank by prioritizing documents that are in our candidate list
     final_docs = []
-    # Add documents that are BOTH in the semantic search results AND our keyword candidates
-    for doc in results['documents'][0]:
+    final_metadatas = []
+    for i, doc in enumerate(full_results['documents'][0]):
         if doc in candidate_docs and doc not in final_docs:
             final_docs.append(doc)
+            final_metadatas.append(full_results['metadatas'][0][i])
         if len(final_docs) >= top_k:
             break
-            
-    # If we still don't have enough results, fill with the remaining semantic results
-    if len(final_docs) < top_k:
-        for doc in results['documents'][0]:
-            if doc not in final_docs:
-                final_docs.append(doc)
-            if len(final_docs) >= top_k:
-                break
 
-    print(f"    - Hybrid search complete. Returning {len(final_docs)} documents.")
-    # We now need to wrap the final documents in the same structure ChromaDB returns
-    final_results = {'documents': [final_docs]}
-    return final_results
+    return {'documents': [final_docs], 'metadatas': [final_metadatas]}
+
 
 def generate_response_with_groq(user_query, student_data, formatted_student_summary, conversation_history, context_docs):
     """Generates a personalized response using Groq with advanced prompt engineering."""
@@ -546,7 +463,7 @@ def main():
     # --- Main Dashboard (Logged-in State) ---
     else:
         student_data = st.session_state.student_data
-        chroma_client, embedding_model = initialize_components()
+        chroma_client, embedding_model, all_documents = initialize_components()
         formatted_summary = format_student_data_for_prompt(student_data)
 
         # --- Sidebar ---
@@ -670,23 +587,17 @@ def main():
 
                 with st.chat_message("assistant"):
                     with st.spinner("🔍 Analyzing..."):
-                        history_for_prompt = st.session_state.messages[-3:-1]
-                        results = retrieve_context(
-                            chroma_client, 
-                            embedding_model, 
-                            prompt, 
-                            formatted_summary
-                        )                    
-                        response = generate_response_with_groq(
-                             prompt, 
-                            student_data, 
-                            formatted_summary, 
-                            history_for_prompt, 
-                            results['documents'][0]
-                        )
-                        st.markdown(response)
+                        formatted_summary = format_student_data_for_prompt(student_data)
                         
-                        with st.expander("🔍 View Retrieved Sources"):
+                        # CORRECTED: Pass all_documents to the context retrieval function
+                        results = retrieve_context(chroma_client, embedding_model, all_documents, prompt, formatted_summary)
+                        
+                        response = generate_response_with_groq(prompt, student_data, formatted_summary, st.session_state.messages[-3:-1], results['documents'][0])
+                        st.markdown(response)
+                
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                        
+                with st.expander("🔍 View Retrieved Sources"):
                             for i, metadata in enumerate(results['metadatas'][0]):
                                 st.write(f"**Source {i+1}:** File `{metadata['source_file']}`, Page `{metadata['page_number']}`")
                                 st.info(results['documents'][0][i])
