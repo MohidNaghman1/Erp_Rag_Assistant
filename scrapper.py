@@ -2,13 +2,15 @@ import time
 import json
 import re
 from datetime import datetime
+import streamlit as st # Import Streamlit
 from selenium import webdriver
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.service import Service as FirefoxService # Renamed to avoid conflicts
+from selenium.webdriver.firefox.options import Options as FirefoxOptions # Renamed
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.firefox import GeckoDriverManager # Import the manager for Firefox
 
 # ==============================================================================
 # --- URLS & LOCATORS: Final verified and robust locators ---
@@ -71,16 +73,85 @@ LOCATORS = {
 }
 # ==============================================================================
 
+@st.cache_resource
+def get_firefox_driver():
+    print("--- Initializing Selenium Firefox Driver for Streamlit Cloud ---")
+    
+    # These are the crucial options for running Firefox in a headless environment
+    options = FirefoxOptions()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    
+    # On Streamlit Cloud, the firefox-esr binary is located at /usr/bin/firefox-esr
+    # We need to tell Selenium where to find it.
+    options.binary_location = '/usr/bin/firefox-esr'
+    
+    # This line automatically downloads and manages the correct geckodriver
+    service = FirefoxService(GeckoDriverManager().install())
+    
+    # Initialize the driver with the service and options
+    driver = webdriver.Firefox(service=service, options=options)
+    print("--- Selenium Firefox Driver Initialized Successfully ---")
+    return driver
+
+
+# In scrapper.py
+
+import time
+import json
+import re
+from datetime import datetime
+import streamlit as st # Import Streamlit
+from selenium import webdriver
+from selenium.webdriver.firefox.service import Service as FirefoxService # Renamed to avoid conflicts
+from selenium.webdriver.firefox.options import Options as FirefoxOptions # Renamed
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.firefox import GeckoDriverManager # Import the manager for Firefox
+
+# ... (Your URLS and LOCATORS dictionaries remain exactly the same) ...
+URLS = { ... }
+LOCATORS = { ... }
+
+# ==============================================================================
+#      NEW: CACHED FUNCTION TO SET UP THE FIREFOX DRIVER
+# ==============================================================================
+@st.cache_resource
+def get_firefox_driver():
+    print("--- Initializing Selenium Firefox Driver for Streamlit Cloud ---")
+    
+    # These are the crucial options for running Firefox in a headless environment
+    options = FirefoxOptions()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    
+    # On Streamlit Cloud, the firefox-esr binary is located at /usr/bin/firefox-esr
+    # We need to tell Selenium where to find it.
+    options.binary_location = '/usr/bin/firefox-esr'
+    
+    # This line automatically downloads and manages the correct geckodriver
+    service = FirefoxService(GeckoDriverManager().install())
+    
+    # Initialize the driver with the service and options
+    driver = webdriver.Firefox(service=service, options=options)
+    print("--- Selenium Firefox Driver Initialized Successfully ---")
+    return driver
+
+# ==============================================================================
+#                          UPDATED SCRAPER CLASS
+# ==============================================================================
 class EnhancedErpScraper:
+    
     def __init__(self, roll_no, password):
         self.roll_no = roll_no
         self.password = password
-        print("--- Setting up Firefox WebDriver ---")
-        driver_path = "geckodriver.exe"
-        service = Service(executable_path=driver_path)
-        firefox_options = Options()
-        firefox_options.add_argument("--headless")
-        self.driver = webdriver.Firefox(service=service, options=firefox_options)
+        # This is the key change: Call the cached function to get the driver
+        self.driver = get_firefox_driver()
+        # The window size is now set within the headless options, but this is a good fallback
         self.driver.set_window_size(1920, 1080)
         self.erp_data = {'roll_no': roll_no}
 
