@@ -1,4 +1,0 @@
-# .streamlit/config.toml
-
-[installer]
-pre-install = ["pysqlite3-binary"]
