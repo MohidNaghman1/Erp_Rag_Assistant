@@ -41,56 +41,42 @@ GROQ_MODEL_NAME = "llama3-8b-8192"
 def update_env_file(key_to_update, new_value):
     set_key('.env', key_to_update, new_value)
 
-def run_scraper(roll_no, password):
-    """Runs the ERP scraper and returns the data dictionary."""
-    try:
-        with EnhancedErpScraper(roll_no, password) as scraper:
-            return scraper.scrape_all_data()
-    except Exception as e:
-        return {"error": str(e)}
+# In run_assistant.py
 
-def check_and_fetch_data(roll_no, password):
-    """Checks for cached data; if not found, runs the scraper and caches the new data."""
-    if not os.path.exists(DATA_FOLDER):
-        os.makedirs(DATA_FOLDER)
+def login_and_fetch_data(roll_no, password):
+    """
+    Handles the entire login and data fetching process.
+    It runs the scraper and returns the data, designed for deployment.
+    This function replaces both check_and_fetch_data and run_scraper.
+    """
+    # 1. Display informational messages to the user.
+    st.info(
+        "**Fetching live data from the ERP portal.** "
+        "This may take up to 2-3 minutes. Please do not close this window."
+    )
     
-    file_path = os.path.join(DATA_FOLDER, f"{roll_no}.json")
-
-    if os.path.exists(file_path):
-        # This part remains the same - quick load from cache
-        st.toast("✅ Found cached data. Loading from file.", icon="📄")
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    else:
-        # --- THIS IS THE NEW LOGIC FOR FIRST-TIME FETCH ---
-        st.toast("🔄 No cached data. Fetching live data from ERP...", icon="📡")
-        
-        # 1. Display the informational message to manage user expectations.
-        st.info(
-            "**Hold tight!** Since this is your first time logging in, "
-            "we're fetching all your academic data from the portal. "
-            "This may take up to 2-3 minutes. Please do not close this window."
-        )
-
-        # 2. The spinner will now appear below the info message.
-        with st.spinner(f"🔗 Connecting to ERP and scraping data for {roll_no}..."):
-            scraped_data = run_scraper(roll_no, password)
-        
-        # 3. The rest of the logic remains the same.
-        if scraped_data and "error" not in scraped_data:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(scraped_data, f, indent=4)
-            st.balloons()
-            st.success("🎉 Live data fetched and saved! Future logins will be instant.")
-            return scraped_data
-        else:
-            error_msg = scraped_data.get('error', 'an unknown error occurred') if scraped_data else 'an unknown error occurred'
-            st.error(f"❌ Failed to fetch data. Error: {error_msg}")
+    # 2. Run the scraper inside a spinner to show activity.
+    with st.spinner(f"🔗 Connecting to ERP and scraping data for {roll_no}..."):
+        try:
+            # The logic from your old `run_scraper` is now here.
+            # We use the 'with' statement to ensure the browser closes properly.
+            with EnhancedErpScraper(roll_no, password) as scraper:
+                scraped_data = scraper.scrape_all_data()
+        except Exception as e:
+            # Catch any unexpected errors from the scraper itself
+            st.error(f"A critical error occurred during scraping: {e}")
             return None
 
-
-
-# In run_assistant.py
+    # 3. Process the results.
+    if scraped_data and "error" not in scraped_data:
+        st.balloons()
+        st.success("🎉 Live data fetched successfully!")
+        return scraped_data
+    else:
+        # Handle errors reported by the scraper (e.g., invalid login)
+        error_msg = scraped_data.get('error', 'an unknown error occurred') if scraped_data else 'an unknown error occurred'
+        st.error(f"❌ Failed to fetch data. Error: {error_msg}")
+        return None
 
 @st.cache_resource
 def initialize_components():
@@ -399,39 +385,53 @@ def main():
         st.session_state.messages = []
 
 
+    # In your main() function
+
     # --- Login Screen ---
     if not st.session_state.logged_in:
-        # UPDATED: Get the existing number *before* calling the component
-                #    These will serve as the initial values for the form fields.
+        
+        # 1. Create the login form UI.
+        #    (The code to get default values from .env for the form is good practice for local dev)
         default_roll_no = os.getenv("ERP_ROLL_NO", "")
         default_password = os.getenv("ERP_PASSWORD", "")
         existing_whatsapp = os.getenv("PARENT_WHATSAPP_NUMBER", "")
-        # UPDATED: Call the component and unpack all four returned values
+
         roll_no_input, password_input, parent_whatsapp_input, login_button = create_login_form(
             default_roll_no=default_roll_no,
             default_password=default_password,
             existing_whatsapp_number=existing_whatsapp
         )
         
+        # 2. Handle the form submission when the button is clicked.
         if login_button:
-             if not roll_no_input or not password_input:
+            if not roll_no_input or not password_input:
                 st.error("❌ Roll Number and Password are required.")
-             else:
-                    student_data = check_and_fetch_data(roll_no_input, password_input)
-                    if student_data:
-                        # 4. Only update the .env file for the WhatsApp number, as it's a
-                    #    more permanent setting. We do NOT save the student's password.
+            else:
+                # --- THIS IS THE KEY CHANGE ---
+                # Call the new, single function that handles scraping without file I/O.
+                student_data = login_and_fetch_data(roll_no_input, password_input)
+                # --- END OF KEY CHANGE ---
+                
+                # 3. If scraping was successful, save data to the session and proceed.
+                if student_data:
+                    # This logic to update the WhatsApp number is fine, but it will only
+                    # work locally. On Streamlit Cloud, you cannot modify the .env file.
+                    # It's better to manage this via Streamlit's Secrets manager UI.
+                    if "STREAMLIT_SERVER_RUNNING" not in os.environ:
                         if parent_whatsapp_input and parent_whatsapp_input != existing_whatsapp:
                             update_env_file("PARENT_WHATSAPP_NUMBER", parent_whatsapp_input)
                             load_dotenv(override=True)
+                
+                    # This is your new "caching" mechanism.
+                    # We save the fetched data directly into the session state.
+                    st.session_state.logged_in = True
+                    st.session_state.student_data = student_data
+                    st.session_state.messages = [
+                        {"role": "assistant", "content": f"Hello {student_data['profile']['student_name']}! 👋 How can I help?"}
+                    ]
                     
-                        # Proceed with login
-                        st.session_state.logged_in = True
-                        st.session_state.student_data = student_data
-                        st.session_state.messages = [
-                            {"role": "assistant", "content": f"Hello {student_data['profile']['student_name']}! 👋 Ask me anything about your academic record or university policies."}
-                        ]
-                        st.rerun()
+                    # Rerun the script to hide the login form and show the main dashboard.
+                    st.rerun()
 
     
     # --- Main Dashboard (Logged-in State) ---
@@ -498,13 +498,11 @@ def main():
         # --- Metric Cards ---
         st.subheader("Your Academic Snapshot")
 
-        # Get the specific data points safely
         cgpa = student_data.get('profile', {}).get('cgpa', 'N/A')
         semester = student_data.get('profile', {}).get('semester', 'N/A')
         standing = student_data.get('profile', {}).get('academic_standing', 'N/A')
         balance = student_data.get('financials', {}).get('total_remaining_balance', 'N/A')
-
-            # Use Streamlit's built-in columns for layout. This is the most reliable way.
+        # Use Streamlit's built-in columns for layout. This is the most reliable way.
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:

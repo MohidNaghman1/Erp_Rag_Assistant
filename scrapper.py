@@ -167,7 +167,7 @@ class EnhancedErpScraper:
             profile_data = {}
 
             # Wait for the student name to ensure the page's JS has loaded
-            name_element = WebDriverWait(self.driver, 15).until(
+            name_element = WebDriverWait(self.driver, 20).until(
                 EC.visibility_of_element_located(self._get_locator("dashboard.student_name"))
             )
             profile_data['student_name'] = name_element.text
