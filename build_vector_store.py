@@ -19,7 +19,7 @@ def build_vector_store(chunks, collection_name, embedding_model_name):
 
     print("Initializing ChromaDB client...")
     # Create a persistent client that saves to disk
-    client = chromadb.PersistentClient(path="./university_db")
+    client = chromadb.PersistentClient(path="./university_db1")
     
     # Load the embedding model
     print(f"Loading embedding model: {embedding_model_name}")

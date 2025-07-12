@@ -30,6 +30,7 @@ except ImportError as e:
 # --- Configuration Constants ---
 load_dotenv()
 DATA_FOLDER = "data"
+DATABASE_NAME = "university_db1"
 COLLECTION_NAME = "university_handbook"
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
 GROQ_MODEL_NAME = "llama3-8b-8192"
@@ -89,49 +90,28 @@ def check_and_fetch_data(roll_no, password):
 
 
 
+# In run_assistant.py
+
 @st.cache_resource
 def initialize_components():
-    """
-    Initializes and caches the Persistent ChromaDB client and embedding model,
-    loading the database from the repository.
-    """
-    # This is the path to the database folder inside your GitHub repository
-    db_path = "university_db"
-
-    print("--- Starting AI Component Initialization (Persistent Mode) ---")
-    print(f"    -> Target DB path: '{db_path}'")
-
+    """Initializes and caches the Persistent ChromaDB client."""
+    db_path = "university_db" # Path to the folder in your repo
+    
+    print("--- Initializing Persistent ChromaDB Client ---")
     with st.spinner("🚀 Initializing AI Assistant..."):
         try:
-            print("    -> Attempting to load SentenceTransformer model...")
             embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
-            print("    ✅ SentenceTransformer model loaded successfully.")
-        except Exception as e:
-            st.error(f"Fatal Error: Could not load the embedding model. Error: {e}")
-            st.stop()
-
-        try:
-            print("    -> Attempting to initialize PersistentClient...")
-            # This tells ChromaDB to load the database files from the specified folder.
             client = chromadb.PersistentClient(path=db_path)
             
-            # As a verification step, let's check the number of items in the collection.
+            # Verification step
             collection = client.get_collection(name=COLLECTION_NAME)
-            collection_count = collection.count()
-            
-            if collection_count > 0:
-                print(f"    ✅ PersistentClient initialized successfully. Found {collection_count} documents in collection '{COLLECTION_NAME}'.")
-            else:
-                print(f"    ⚠️ WARNING: PersistentClient initialized, but collection '{COLLECTION_NAME}' is empty.")
-                st.warning(f"Warning: The vector database was loaded, but the '{COLLECTION_NAME}' collection is empty. The AI assistant may not be able to answer policy questions.")
+            print(f"✅ Successfully loaded DB. Collection has {collection.count()} items.")
 
         except Exception as e:
-            # This will catch the sqlite3 errors or other operational errors
-            print(f"    ❌ FAILED to initialize PersistentClient. Error: {e}")
-            st.error(f"Fatal Error: Could not load the vector database from '{db_path}'. Please ensure the folder is in the repository. Error: {e}")
+            print(f"❌ FAILED to initialize PersistentClient. Error: {e}")
+            st.error(f"Fatal Error: Could not load the vector database. Error: {e}")
             st.stop()
-    
-    print("--- AI Component Initialization Complete ---")
+            
     return client, embedding_model
 
 def get_next_class(timetable):
@@ -571,6 +551,11 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
+            # In your `main` function, inside the `else:` block for logged-in state
+
+            formatted_summary = format_student_data_for_prompt(student_data)
+
+
             # Chat Interface
             for message in st.session_state.messages:
                 with st.chat_message(message["role"]):
@@ -582,14 +567,34 @@ def main():
                     st.markdown(prompt)
 
                 with st.chat_message("assistant"):
-                    with st.spinner("🔍 Analyzing..."):
-                        formatted_summary = format_student_data_for_prompt(student_data)
+                    with st.spinner("🔍 Analyzing with Hybrid Search..."):
                         
-                        # CORRECTED: Pass all_documents to the context retrieval function
-                        results = retrieve_context(chroma_client, embedding_model, prompt, formatted_summary)
+                        # USE HYBRID SEARCH from Block 2's logic
+                        results = retrieve_context(
+                            chroma_client, 
+                            embedding_model, 
+                            prompt, 
+                            formatted_summary
+                        )
                         
-                        response = generate_response_with_groq(prompt, student_data, formatted_summary, st.session_state.messages[-3:-1], results['documents'][0])
+                        # Generate the response
+                        response = generate_response_with_groq(
+                            prompt, 
+                            student_data, 
+                            formatted_summary, 
+                            st.session_state.messages[-3:-1], # Simple history
+                            results['documents'][0]
+                        )
                         st.markdown(response)
+                        
+                        # USE SOURCE DISPLAY from Block 1's logic
+                        with st.expander("🔍 View Retrieved Sources"):
+                            if results['documents'][0]:
+                                for i, doc in enumerate(results['documents'][0]):
+                                    # Assumes metadata might not be present in hybrid search result
+                                    st.info(f"**Source {i+1}:**\n{doc}")
+                            else:
+                                st.write("No relevant documents were retrieved from the handbook.")
                 
                 st.session_state.messages.append({"role": "assistant", "content": response})
                         
