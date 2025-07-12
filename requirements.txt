@@ -1,9 +1,7 @@
+# requirements.txt
 
-# ---- START: ChromaDB/SQLite3 Fix for Streamlit Cloud ----
-pysqlite3-binary
-# Pinning chromadb to a version known to work well with this fix
-chromadb==0.4.24 
-# ---- END: ChromaDB/SQLite3 Fix ----
+# Use a version of chromadb known to be compatible with Streamlit Cloud's environment
+chromadb==0.4.15
 
 # Your other direct dependencies
 streamlit
@@ -11,7 +9,7 @@ pandas
 selenium
 python-dotenv
 groq
-# chromadb is now listed above
+# (pysqlite3-binary has been removed)
 sentence-transformers
 twilio
 plotly
