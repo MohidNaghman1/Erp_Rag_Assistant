@@ -7,6 +7,7 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import streamlit as st
 import os
 import json
+import re
 import chromadb
 import plotly.express as px
 import plotly.graph_objects as go
@@ -30,7 +31,7 @@ except ImportError as e:
 load_dotenv()
 
 # Configuration constants
-DB_PATH = "./university_db"
+DB_PATH = "/tmp/university_db" 
 DATA_FOLDER = "data"
 COLLECTION_NAME = "university_handbook"
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
@@ -90,13 +91,50 @@ def check_and_fetch_data(roll_no, password):
             return None
 
 
+
+
 @st.cache_resource
 def initialize_components():
-    """Initializes and caches the ChromaDB client and embedding model."""
-    with st.spinner("🔄 Initializing AI components..."):
-        client = chromadb.PersistentClient(path=DB_PATH)
+    """
+    Initializes components by loading pre-chunked data from a JSON file
+    and builds an IN-MEMORY ChromaDB instance.
+    """
+    with st.spinner("🚀 Initializing AI Assistant..."):
+        
         embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
-    return client, embedding_model
+        client = chromadb.Client() # In-memory client
+        collection = client.get_or_create_collection(name=COLLECTION_NAME)
+
+        # Populate the collection ONLY IF it's empty
+        if collection.count() == 0:
+            print("Vector collection is empty. Populating from 'chunks_data.json'...")
+            
+            # 1. Load your pre-processed JSON file
+            with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
+                documents = json.load(f) # Assuming the JSON is a list of strings
+            
+            ids = [f"handbook_chunk_{i}" for i in range(len(documents))]
+            
+            # 2. Generate embeddings (this only happens once per session)
+            embeddings = embedding_model.encode(documents).tolist()
+            
+            # 3. Add to the in-memory collection
+            collection.add(
+                embeddings=embeddings,
+                documents=documents,
+                ids=ids
+            )
+            print(f"✅ Collection populated with {len(documents)} documents.")
+
+    # We need to return the documents as well for our keyword search stage
+    # Let's load them once and cache them.
+    with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
+        all_documents = json.load(f)
+
+    return client, embedding_model, all_documents
+
+# In main()
+chroma_client, embedding_model, all_documents = initialize_components()
 
 def get_next_class(timetable):
     """Finds the user's next scheduled class and returns its data or a status message."""
@@ -168,61 +206,74 @@ def create_attendance_chart(attendance_data):
 
 
 
+
+
 def create_gpa_chart(semester_results):
     """
-    Creates an enhanced and robust Plotly line chart for GPA/CGPA trends.
-    Safely handles non-numeric data to prevent crashes.
+    Creates a robust GPA/CGPA Plotly chart with styling and annotations.
     """
-    # 1. Handle case where there is no data
     if not semester_results:
-        # Return an empty figure to avoid errors downstream
         return go.Figure()
-    
-    # 2. Convert the list of dictionaries to a Pandas DataFrame
+
+    # Convert to DataFrame
     df = pd.DataFrame(semester_results)
-    
-    # --- START: ROBUST DATA CONVERSION (THE FIX) ---
-    # Use pd.to_numeric with errors='coerce'. This will replace any text
-    # (like '-', 'N/A', or an empty string) with NaN (Not a Number).
+    df.sort_values(by='term', inplace=True)
+
+    # Safely convert GPA/CGPA to numeric
     df['gpa'] = pd.to_numeric(df['gpa'], errors='coerce')
     df['cgpa'] = pd.to_numeric(df['cgpa'], errors='coerce')
-    # --- END OF FIX ---
-    
-    # 3. Drop rows with invalid data
-    # Remove any rows where the gpa or cgpa could not be converted,
-    # as these points cannot be plotted on the chart.
-    df.dropna(subset=['gpa', 'cgpa'], inplace=True)
-    
-    # If after dropping invalid data the dataframe is empty, return an empty figure
+    df.dropna(subset=['gpa', 'cgpa', 'term'], inplace=True)
+
     if df.empty:
         return go.Figure()
 
-    # 4. Create the Plotly figure
+    # Create figure
     fig = go.Figure()
-    
-    # Add GPA line
+
+    # GPA Line
     fig.add_trace(go.Scatter(
         x=df['term'],
         y=df['gpa'],
         mode='lines+markers',
-        name='GPA',
+        name='Semester GPA',
         line=dict(color='#667eea', width=3),
-        marker=dict(size=8, color='#667eea'),
+        marker=dict(size=8, symbol='circle'),
         hovertemplate='<b>%{x}</b><br>GPA: %{y:.2f}<extra></extra>'
     ))
-    
-    # Add CGPA line
+
+    # CGPA Line
     fig.add_trace(go.Scatter(
-        x=df['cgpa'],
+        x=df['term'],
         y=df['cgpa'],
         mode='lines+markers',
-        name='CGPA',
-        line=dict(color='#48bb78', width=3),
-        marker=dict(size=8, color='#48bb78'),
+        name='Cumulative GPA (CGPA)',
+        line=dict(color='#48bb78', width=3, dash='dash'),
+        marker=dict(size=8, symbol='diamond'),
         hovertemplate='<b>%{x}</b><br>CGPA: %{y:.2f}<extra></extra>'
     ))
-    
-    # 5. Style the figure layout
+
+    # Add annotations for latest GPA/CGPA
+    latest_term = df['term'].iloc[-1]
+    latest_gpa = df['gpa'].iloc[-1]
+    latest_cgpa = df['cgpa'].iloc[-1]
+
+    fig.add_annotation(
+        x=latest_term, y=latest_gpa,
+        text=f"<b>Latest GPA: {latest_gpa:.2f}</b>",
+        showarrow=True, arrowhead=2, arrowcolor="#667eea",
+        ax=0, ay=-40, bgcolor="rgba(255,255,255,0.8)",
+        bordercolor="#667eea", borderwidth=1
+    )
+
+    fig.add_annotation(
+        x=latest_term, y=latest_cgpa,
+        text=f"<b>Current CGPA: {latest_cgpa:.2f}</b>",
+        showarrow=True, arrowhead=2, arrowcolor="#48bb78",
+        ax=0, ay=40, bgcolor="rgba(255,255,255,0.8)",
+        bordercolor="#48bb78", borderwidth=1
+    )
+
+    # Layout
     fig.update_layout(
         title={
             'text': '📈 Academic Performance Trend',
@@ -232,21 +283,15 @@ def create_gpa_chart(semester_results):
         },
         xaxis_title='Semester',
         yaxis_title='GPA / CGPA',
-        yaxis=dict(range=[0, 4.0]), # Set a fixed y-axis range for GPA
+        yaxis=dict(range=[0, 4.0]),
         template='plotly_white',
         height=400,
         margin=dict(l=20, r=20, t=80, b=20),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)'
     )
-    
+
     return fig
 
 # --- 4. RAG FUNCTIONS ---
@@ -281,13 +326,75 @@ def format_student_data_for_prompt(student_data):
     
     return summary.strip()
 
-def retrieve_context(client, embedding_model, user_query, formatted_student_summary, top_k=5):
-    """Retrieves context and returns both documents and their metadata."""
+
+
+def retrieve_context(client, embedding_model, all_documents, user_query, formatted_student_summary, top_k=5):
+    """
+    Performs a two-stage hybrid search:
+    1. Keyword filtering to find candidate documents.
+    2. Semantic re-ranking on the candidates to find the best matches.
+    """
+    print("--- Performing Hybrid Search ---")
+    
+    # --- Stage 1: Keyword Filtering ---
+    
+    # Extract keywords from the user's query
+    query_keywords = set(re.findall(r'\b\w{3,}\b', user_query.lower()))
+    print(f"    - Keywords from query: {query_keywords}")
+
+    candidate_docs = []
+    # Find all documents that contain at least one of the keywords
+    for doc in all_documents:
+        if any(keyword in doc.lower() for keyword in query_keywords):
+            candidate_docs.append(doc)
+            
+    # As a fallback, if no keyword matches, use all documents
+    if not candidate_docs:
+        print("    - No keyword matches found. Using all documents as candidates.")
+        candidate_docs = all_documents
+    else:
+        print(f"    - Found {len(candidate_docs)} candidate documents from keyword search.")
+
+
+    # --- Stage 2: Semantic Search (Re-ranking) on Candidates ---
+    
+    # We will now perform a vector search ONLY on the `candidate_docs`
     augmented_query = f"Student Summary: {formatted_student_summary}\nUser's Question: {user_query}"
+    
+    # Get the collection
     collection = client.get_collection(name=COLLECTION_NAME)
+    
+
     query_embedding = embedding_model.encode(augmented_query).tolist()
-    results = collection.query(query_embeddings=[query_embedding], n_results=top_k, include=['documents', 'metadatas'])
-    return results
+    
+    # Query a larger number of results from the full vector DB
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=max(20, top_k * 2), # Get more results to increase chance of finding candidates
+        include=['documents']
+    )
+    
+    # Now, re-rank by prioritizing documents that are in our candidate list
+    final_docs = []
+    # Add documents that are BOTH in the semantic search results AND our keyword candidates
+    for doc in results['documents'][0]:
+        if doc in candidate_docs and doc not in final_docs:
+            final_docs.append(doc)
+        if len(final_docs) >= top_k:
+            break
+            
+    # If we still don't have enough results, fill with the remaining semantic results
+    if len(final_docs) < top_k:
+        for doc in results['documents'][0]:
+            if doc not in final_docs:
+                final_docs.append(doc)
+            if len(final_docs) >= top_k:
+                break
+
+    print(f"    - Hybrid search complete. Returning {len(final_docs)} documents.")
+    # We now need to wrap the final documents in the same structure ChromaDB returns
+    final_results = {'documents': [final_docs]}
+    return final_results
 
 def generate_response_with_groq(user_query, student_data, formatted_student_summary, conversation_history, context_docs):
     """Generates a personalized response using Groq with advanced prompt engineering."""
@@ -457,7 +564,7 @@ def main():
                         report_str = format_student_report(student_data)
                         
                         # 2. Send the message
-                        result = send_twilio_whatsapp_report(student_data) 
+                        result = send_twilio_whatsapp_report(report_str) 
 
 
                     # 3. Show the result
@@ -544,9 +651,15 @@ def main():
                 with st.chat_message("assistant"):
                     with st.spinner("🔍 Analyzing..."):
                         history_for_prompt = st.session_state.messages[-3:-1]
-                        results = retrieve_context(chroma_client, embedding_model, prompt, formatted_summary)
-                        response = generate_response_with_groq(
+                        results = retrieve_context(
+                            chroma_client, 
+                            embedding_model, 
+                            all_documents, # Pass the loaded documents
                             prompt, 
+                            formatted_summary
+                        )                    
+                        response = generate_response_with_groq(
+                             prompt, 
                             student_data, 
                             formatted_summary, 
                             history_for_prompt, 
