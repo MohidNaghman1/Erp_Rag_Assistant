@@ -1,13 +1,21 @@
+
+# ---- START: ChromaDB/SQLite3 Fix for Streamlit Cloud ----
+pysqlite3-binary
+# Pinning chromadb to a version known to work well with this fix
+chromadb==0.4.24 
+# ---- END: ChromaDB/SQLite3 Fix ----
+
+# Your other direct dependencies
 streamlit
 pandas
 selenium
 python-dotenv
 groq
-chromadb
+# chromadb is now listed above
 sentence-transformers
 twilio
 plotly
 beautifulsoup4
 lxml
-unstructured[local-inference] # This bundles pytesseract and other dependencies
+unstructured[local-inference]
 webdriver-manager
