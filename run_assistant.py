@@ -166,15 +166,38 @@ def create_attendance_chart(attendance_data):
     
     return fig
 
+
+
 def create_gpa_chart(semester_results):
-    """Creates an enhanced Plotly line chart for GPA/CGPA trends."""
+    """
+    Creates an enhanced and robust Plotly line chart for GPA/CGPA trends.
+    Safely handles non-numeric data to prevent crashes.
+    """
+    # 1. Handle case where there is no data
     if not semester_results:
+        # Return an empty figure to avoid errors downstream
         return go.Figure()
     
+    # 2. Convert the list of dictionaries to a Pandas DataFrame
     df = pd.DataFrame(semester_results)
-    df['gpa'] = df['gpa'].astype(float)
-    df['cgpa'] = df['cgpa'].astype(float)
     
+    # --- START: ROBUST DATA CONVERSION (THE FIX) ---
+    # Use pd.to_numeric with errors='coerce'. This will replace any text
+    # (like '-', 'N/A', or an empty string) with NaN (Not a Number).
+    df['gpa'] = pd.to_numeric(df['gpa'], errors='coerce')
+    df['cgpa'] = pd.to_numeric(df['cgpa'], errors='coerce')
+    # --- END OF FIX ---
+    
+    # 3. Drop rows with invalid data
+    # Remove any rows where the gpa or cgpa could not be converted,
+    # as these points cannot be plotted on the chart.
+    df.dropna(subset=['gpa', 'cgpa'], inplace=True)
+    
+    # If after dropping invalid data the dataframe is empty, return an empty figure
+    if df.empty:
+        return go.Figure()
+
+    # 4. Create the Plotly figure
     fig = go.Figure()
     
     # Add GPA line
@@ -184,19 +207,22 @@ def create_gpa_chart(semester_results):
         mode='lines+markers',
         name='GPA',
         line=dict(color='#667eea', width=3),
-        marker=dict(size=8, color='#667eea')
+        marker=dict(size=8, color='#667eea'),
+        hovertemplate='<b>%{x}</b><br>GPA: %{y:.2f}<extra></extra>'
     ))
     
     # Add CGPA line
     fig.add_trace(go.Scatter(
-        x=df['term'],
+        x=df['cgpa'],
         y=df['cgpa'],
         mode='lines+markers',
         name='CGPA',
         line=dict(color='#48bb78', width=3),
-        marker=dict(size=8, color='#48bb78')
+        marker=dict(size=8, color='#48bb78'),
+        hovertemplate='<b>%{x}</b><br>CGPA: %{y:.2f}<extra></extra>'
     ))
     
+    # 5. Style the figure layout
     fig.update_layout(
         title={
             'text': '📈 Academic Performance Trend',
@@ -205,7 +231,8 @@ def create_gpa_chart(semester_results):
             'xanchor': 'center'
         },
         xaxis_title='Semester',
-        yaxis_title='GPA/CGPA',
+        yaxis_title='GPA / CGPA',
+        yaxis=dict(range=[0, 4.0]), # Set a fixed y-axis range for GPA
         template='plotly_white',
         height=400,
         margin=dict(l=20, r=20, t=80, b=20),
