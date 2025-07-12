@@ -88,41 +88,51 @@ def check_and_fetch_data(roll_no, password):
             return None
 
 
-# In run_assistant.py
 
-# Cleaned up comment
-# This function initializes all AI components and is cached for performance.
 @st.cache_resource
 def initialize_components():
-    # Cleaned up, simple docstring
-    """Initializes and caches AI components like ChromaDB and the embedding model."""
-    
-    with st.spinner("🚀 Initializing AI Assistant... (this happens once per session)"):
-        
-        # --- The rest of your function code remains exactly the same ---
-        embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
-        client = chromadb.Client()
-        collection = client.get_or_create_collection(name=COLLECTION_NAME)
+    """
+    Initializes and caches the Persistent ChromaDB client and embedding model,
+    loading the database from the repository.
+    """
+    # This is the path to the database folder inside your GitHub repository
+    db_path = "university_db"
 
-        if collection.count() == 0:
-            print(f"Vector collection '{COLLECTION_NAME}' is empty. Populating now...")
-            try:
-                with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
-                    documents = json.load(f)
-                ids = [f"handbook_chunk_{i}" for i in range(len(documents))]
-                collection.add(documents=documents, ids=ids)
-                print(f"✅ Collection populated with {len(documents)} documents.")
-            except FileNotFoundError:
-                st.error("Fatal Error: 'final_chunked_data.json' not found. Please upload it to your repository.")
-                st.stop()
-            except Exception as e:
-                st.error(f"Fatal Error loading documents into vector DB: {e}")
-                st.stop()
+    print("--- Starting AI Component Initialization (Persistent Mode) ---")
+    print(f"    -> Target DB path: '{db_path}'")
+
+    with st.spinner("🚀 Initializing AI Assistant..."):
+        try:
+            print("    -> Attempting to load SentenceTransformer model...")
+            embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
+            print("    ✅ SentenceTransformer model loaded successfully.")
+        except Exception as e:
+            st.error(f"Fatal Error: Could not load the embedding model. Error: {e}")
+            st.stop()
+
+        try:
+            print("    -> Attempting to initialize PersistentClient...")
+            # This tells ChromaDB to load the database files from the specified folder.
+            client = chromadb.PersistentClient(path=db_path)
+            
+            # As a verification step, let's check the number of items in the collection.
+            collection = client.get_collection(name=COLLECTION_NAME)
+            collection_count = collection.count()
+            
+            if collection_count > 0:
+                print(f"    ✅ PersistentClient initialized successfully. Found {collection_count} documents in collection '{COLLECTION_NAME}'.")
+            else:
+                print(f"    ⚠️ WARNING: PersistentClient initialized, but collection '{COLLECTION_NAME}' is empty.")
+                st.warning(f"Warning: The vector database was loaded, but the '{COLLECTION_NAME}' collection is empty. The AI assistant may not be able to answer policy questions.")
+
+        except Exception as e:
+            # This will catch the sqlite3 errors or other operational errors
+            print(f"    ❌ FAILED to initialize PersistentClient. Error: {e}")
+            st.error(f"Fatal Error: Could not load the vector database from '{db_path}'. Please ensure the folder is in the repository. Error: {e}")
+            st.stop()
     
-    with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
-        all_documents = json.load(f)
-        
-    return client, embedding_model, all_documents
+    print("--- AI Component Initialization Complete ---")
+    return client, embedding_model
 
 def get_next_class(timetable):
     """Finds the user's next scheduled class and returns its data or a status message."""
@@ -286,56 +296,39 @@ def format_student_data_for_prompt(student_data):
 
 
 
-def retrieve_context(client, embedding_model, all_documents, user_query, formatted_student_summary, top_k=3):
+def retrieve_context(client, embedding_model, user_query, formatted_student_summary, top_k=5):
     """
-    Performs a two-stage hybrid search.
+    Retrieves context from the persistent ChromaDB collection.
     """
-    # Ensure inputs are strings to prevent TypeErrors
-    user_query = str(user_query)
-    formatted_student_summary = str(formatted_student_summary)
-    
-    # --- Stage 1: Keyword Filtering ---
-    query_keywords = set(re.findall(r'\b\w{3,}\b', user_query.lower()))
-    if not query_keywords:
-        candidate_docs = all_documents
-    else:
-        candidate_docs = [doc for doc in all_documents if any(kw in doc.lower() for kw in query_keywords)]
-        if not candidate_docs:
-            candidate_docs = all_documents
-            
-    # --- Stage 2: Semantic Search on Candidates ---
-    collection = client.get_collection(name=COLLECTION_NAME)
-    
-    # Find the IDs of the candidate documents
-    candidate_ids = [f"handbook_chunk_{i}" for i, doc in enumerate(all_documents) if doc in candidate_docs]
-    
-    augmented_query = f"Student Summary: {formatted_student_summary}\nUser's Question: {user_query}"
-    query_embedding = embedding_model.encode(augmented_query).tolist()
-    
-    # Query the collection, but filter by the candidate IDs
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k,
-        where={"$and": [{"id": {"$in": candidate_ids}}]}, # This is a hypothetical filter syntax
-        # A more direct way with Chroma is to query all and then filter, which we'll do
-        include=['documents', 'metadatas']
-    )
+    print("--- Retrieving context from persistent DB ---")
+    try:
+        # Ensure inputs are strings to prevent TypeErrors
+        user_query = str(user_query)
+        formatted_student_summary = str(formatted_student_summary)
+        
+        augmented_query = f"Student Summary: {formatted_student_summary}\nUser's Question: {user_query}"
+        
+        collection = client.get_collection(name=COLLECTION_NAME)
 
-    # For simplicity and reliability, we query more and then filter
-    full_results = collection.query(query_embeddings=[query_embedding], n_results=20, include=['documents', 'metadatas'])
+        # Generate the embedding for the query
+        query_embedding = embedding_model.encode(augmented_query).tolist()
+        
+        # Perform the query
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=['documents', 'metadatas'] # Make sure to include metadatas
+        )
+        
+        print(f"    - Found {len(results['documents'][0])} relevant documents.")
+        return results
+
+    except Exception as e:
+        print(f"    ❌ FAILED during context retrieval. Error: {e}")
+        # Return a default empty structure in case of error
+        return {'documents': [[]], 'metadatas': [[]]}
     
-    final_docs = []
-    final_metadatas = []
-    for i, doc in enumerate(full_results['documents'][0]):
-        if doc in candidate_docs and doc not in final_docs:
-            final_docs.append(doc)
-            final_metadatas.append(full_results['metadatas'][0][i])
-        if len(final_docs) >= top_k:
-            break
-
-    return {'documents': [final_docs], 'metadatas': [final_metadatas]}
-
-
+    
 def generate_response_with_groq(user_query, student_data, formatted_student_summary, conversation_history, context_docs):
     """Generates a personalized response using Groq with advanced prompt engineering."""
     context_str = "\n\n".join(f"--- Handbook Excerpt ---\n{doc}" for doc in context_docs)
