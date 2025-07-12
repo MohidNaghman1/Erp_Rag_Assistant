@@ -1,17 +1,14 @@
-import time
-import json
+# Import the manager for Firefox
+import os
 import re
-from datetime import datetime
-import streamlit as st # Import Streamlit
 from selenium import webdriver
-from selenium.webdriver.firefox.service import Service as FirefoxService # Renamed to avoid conflicts
-from selenium.webdriver.firefox.options import Options as FirefoxOptions # Renamed
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from webdriver_manager.firefox import GeckoDriverManager
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from webdriver_manager.firefox import GeckoDriverManager # Import the manager for Firefox
-
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
 # ==============================================================================
 # --- URLS & LOCATORS: Final verified and robust locators ---
 # ==============================================================================
@@ -71,89 +68,41 @@ LOCATORS = {
         "day_groups": ("xpath", "//li[@class='cd-schedule__group']")
     }
 }
-# ==============================================================================
-
-@st.cache_resource
-def get_firefox_driver():
-    print("--- Initializing Selenium Firefox Driver for Streamlit Cloud ---")
-    
-    # These are the crucial options for running Firefox in a headless environment
-    options = FirefoxOptions()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    
-    # On Streamlit Cloud, the firefox-esr binary is located at /usr/bin/firefox-esr
-    # We need to tell Selenium where to find it.
-    options.binary_location = '/usr/bin/firefox-esr'
-    
-    # This line automatically downloads and manages the correct geckodriver
-    service = FirefoxService(GeckoDriverManager().install())
-    
-    # Initialize the driver with the service and options
-    driver = webdriver.Firefox(service=service, options=options)
-    print("--- Selenium Firefox Driver Initialized Successfully ---")
-    return driver
-
-
-# In scrapper.py
-
-import time
-import json
-import re
-from datetime import datetime
-import streamlit as st # Import Streamlit
-from selenium import webdriver
-from selenium.webdriver.firefox.service import Service as FirefoxService # Renamed to avoid conflicts
-from selenium.webdriver.firefox.options import Options as FirefoxOptions # Renamed
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from webdriver_manager.firefox import GeckoDriverManager # Import the manager for Firefox
-
-# ... (Your URLS and LOCATORS dictionaries remain exactly the same) ...
-URLS = { ... }
-LOCATORS = { ... }
-
-# ==============================================================================
-#      NEW: CACHED FUNCTION TO SET UP THE FIREFOX DRIVER
-# ==============================================================================
-@st.cache_resource
-def get_firefox_driver():
-    print("--- Initializing Selenium Firefox Driver for Streamlit Cloud ---")
-    
-    # These are the crucial options for running Firefox in a headless environment
-    options = FirefoxOptions()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    
-    # On Streamlit Cloud, the firefox-esr binary is located at /usr/bin/firefox-esr
-    # We need to tell Selenium where to find it.
-    options.binary_location = '/usr/bin/firefox-esr'
-    
-    # This line automatically downloads and manages the correct geckodriver
-    service = FirefoxService(GeckoDriverManager().install())
-    
-    # Initialize the driver with the service and options
-    driver = webdriver.Firefox(service=service, options=options)
-    print("--- Selenium Firefox Driver Initialized Successfully ---")
-    return driver
 
 # ==============================================================================
 #                          UPDATED SCRAPER CLASS
 # ==============================================================================
 class EnhancedErpScraper:
-    
     def __init__(self, roll_no, password):
+        # This code will now work on BOTH your local machine and Streamlit Cloud
+        print("--- Initializing new Selenium Firefox Driver instance ---")
+        options = FirefoxOptions()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+
+        # --- This is the environment-aware logic ---
+        # Check if the app is running on Streamlit's servers
+        if "STREAMLIT_SERVER_RUNNING" in os.environ:
+            # If on Streamlit Cloud, it's a Linux environment
+            print("--- Running in Streamlit Cloud environment ---")
+            # We explicitly point to the Firefox binary installed via packages.txt
+            options.binary_location = '/usr/bin/firefox-esr'
+        else:
+            # If running locally, you don't need to set the binary_location
+            print("--- Running in local environment ---")
+
+        # webdriver-manager automatically downloads and manages the correct geckodriver
+        # This replaces your hardcoded "geckodriver.exe"
+        service = FirefoxService(GeckoDriverManager().install())
+        
+        self.driver = webdriver.Firefox(service=service, options=options)
+        
+        # The rest of your __init__ method
         self.roll_no = roll_no
         self.password = password
-        # This is the key change: Call the cached function to get the driver
-        self.driver = get_firefox_driver()
-        # The window size is now set within the headless options, but this is a good fallback
-        self.driver.set_window_size(1920, 1080)
         self.erp_data = {'roll_no': roll_no}
+        print("--- Driver instance created successfully ---")
 
     def _get_locator(self, key_path):
         keys = key_path.split('.')
@@ -183,14 +132,12 @@ class EnhancedErpScraper:
             print("    - ✅ Login Successful!")
             
         except TimeoutException:
-            # If the student name doesn't appear after 10 seconds, login has failed.
-            # Now, we check *why* it failed.
-            
+            # If the student name doesn't appear, login has failed.
             error_message = "Login Failed: An unknown error occurred."
             
             try:
-                # Look for a specific error alert message on the login page
-                # NOTE: You will need to add a locator for "login.error_alert"
+                # Look for a specific error alert. You may need to adjust this locator.
+                # Assuming the error message is in a div with class 'alert-danger'.
                 alert_element = self.driver.find_element(By.XPATH, "//div[contains(@class, 'alert-danger')]")
                 error_message = f"Login Failed: {alert_element.text.strip()}"
                 
@@ -198,14 +145,20 @@ class EnhancedErpScraper:
                 # If there's no specific error message, it's likely just wrong credentials.
                 error_message = "Login Failed: Invalid credentials or the page timed out."
 
-            # Save a screenshot for debugging purposes
-            self.driver.save_screenshot("login_failure_screenshot.png")
+            # --- THIS IS THE DEPLOYMENT-READY CHANGE ---
+            # Only save a screenshot if running locally, not on Streamlit Cloud.
+            if "STREAMLIT_SERVER_RUNNING" not in os.environ:
+                try:
+                    self.driver.save_screenshot("login_failure_screenshot.png")
+                    print("    - A screenshot 'login_failure_screenshot.png' has been saved for local debugging.")
+                except Exception as e:
+                    print(f"    - Could not save screenshot: {e}")
+            # --- END OF CHANGE ---
+            
             print(f"    - ❌ {error_message}")
-            print("    - A screenshot 'login_failure_screenshot.png' has been saved.")
             
             # Raise a clean exception that the main app can catch and display
             raise Exception(error_message)
-   # In scraper.py, replace the existing _scrape_dashboard with this one:
 
     def _scrape_dashboard(self):
         print("--- 2. Scraping Dashboard ---")
