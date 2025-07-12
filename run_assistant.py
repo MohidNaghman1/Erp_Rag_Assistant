@@ -88,15 +88,20 @@ def check_and_fetch_data(roll_no, password):
             return None
 
 
+# In run_assistant.py
+
+# Cleaned up comment
+# This function initializes all AI components and is cached for performance.
 @st.cache_resource
 def initialize_components():
-    """
-    Initializes components and builds a fresh IN-MEMORY ChromaDB instance.
-    This is the most reliable method for Streamlit Cloud deployment.
-    """
+    # Cleaned up, simple docstring
+    """Initializes and caches AI components like ChromaDB and the embedding model."""
+    
     with st.spinner("🚀 Initializing AI Assistant... (this happens once per session)"):
+        
+        # --- The rest of your function code remains exactly the same ---
         embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True)
-        client = chromadb.Client()  # In-memory client
+        client = chromadb.Client()
         collection = client.get_or_create_collection(name=COLLECTION_NAME)
 
         if collection.count() == 0:
@@ -114,12 +119,10 @@ def initialize_components():
                 st.error(f"Fatal Error loading documents into vector DB: {e}")
                 st.stop()
     
-    # NEW: Also load the documents into memory for the keyword search stage
     with open("final_chunked_data.json", 'r', encoding='utf-8') as f:
         all_documents = json.load(f)
         
     return client, embedding_model, all_documents
-
 
 def get_next_class(timetable):
     """Finds the user's next scheduled class and returns its data or a status message."""
