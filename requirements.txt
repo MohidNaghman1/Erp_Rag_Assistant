@@ -1,5 +1,3 @@
-# requirements.txt
-
 # Use a version of chromadb known to be compatible with Streamlit Cloud's environment
 chromadb==0.4.15
 
@@ -9,7 +7,6 @@ pandas
 selenium
 python-dotenv
 groq
-# (pysqlite3-binary has been removed)
 sentence-transformers
 twilio
 plotly
