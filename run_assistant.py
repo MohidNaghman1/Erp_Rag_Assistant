@@ -328,7 +328,7 @@ def retrieve_context(client, embedding_model, user_query, formatted_student_summ
         # Return a default empty structure in case of error
         return {'documents': [[]], 'metadatas': [[]]}
     
-    
+
 def generate_response_with_groq(user_query, student_data, formatted_student_summary, conversation_history, context_docs):
     """Generates a personalized response using Groq with advanced prompt engineering."""
     context_str = "\n\n".join(f"--- Handbook Excerpt ---\n{doc}" for doc in context_docs)
@@ -459,7 +459,7 @@ def main():
     # --- Main Dashboard (Logged-in State) ---
     else:
         student_data = st.session_state.student_data
-        chroma_client, embedding_model, all_documents = initialize_components()
+        chroma_client, embedding_model = initialize_components()
         formatted_summary = format_student_data_for_prompt(student_data)
 
         # --- Sidebar ---
@@ -586,7 +586,7 @@ def main():
                         formatted_summary = format_student_data_for_prompt(student_data)
                         
                         # CORRECTED: Pass all_documents to the context retrieval function
-                        results = retrieve_context(chroma_client, embedding_model, all_documents, prompt, formatted_summary)
+                        results = retrieve_context(chroma_client, embedding_model, prompt, formatted_summary)
                         
                         response = generate_response_with_groq(prompt, student_data, formatted_summary, st.session_state.messages[-3:-1], results['documents'][0])
                         st.markdown(response)
