@@ -1,7 +1,17 @@
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+import os
 
+# Check if we are running on Streamlit Cloud
+if "STREAMLIT_SERVER_RUNNING" in os.environ:
+    print("Streamlit Cloud environment detected. Applying sqlite3 patch.")
+    # On Streamlit Cloud, use the pysqlite3-binary package
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    print("Sqlite3 patch applied successfully.")
+else:
+    # For local development, use the standard sqlite3
+    print("Local environment detected. Using standard sqlite3.")
+    import sqlite3
 
 import streamlit as st
 import os
